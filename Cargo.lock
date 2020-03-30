@@ -46,6 +46,7 @@ dependencies = [
 name = "bc-crawl"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "ferris-says",
 ]
 
