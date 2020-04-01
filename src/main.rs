@@ -4,9 +4,11 @@ extern crate clap;
 use clap::{Arg, App};
 use std::fs::{File, OpenOptions};
 use std::io::Write;
+use std::sync::mpsc;
+use std::thread;
 
 
-fn parse(beat: &mut bool, file_name: &mut String) -> String {
+fn parse_args(beat: &mut bool, file_name: &mut String) -> String {
     let matches = App::new("BC crawl")
         .version("1.0.0")
         .author("Jazmin Ferreiro  <jazminsofiaf@gmail.com>")
@@ -65,14 +67,21 @@ fn main() {
 
     crab::foo();
 
+    let (address_channel_tx,address_channel_rx) = mpsc::channel();
+    let (file_name_tx,file_name_rx) = mpsc::channel();
     let mut beat: bool = false;
-    let mut file_name: String = String::new();
 
-    let address: String = parse(&mut beat, &mut file_name);
+    thread::spawn(move || {
+        let mut file_name: String = String::new();
+        let address = parse_args(&mut beat, &mut file_name);
+        address_channel_tx.send(address).unwrap();
+        file_name_tx.send(file_name).unwrap();
+    });
 
-    println!("Initial address: {}", address);
 
-    let msg:String = format!("name: {}\n", file_name);
+    let file_name = file_name_rx.recv().unwrap();
+
+    let msg:String = format!("name: {}\n", address_channel_rx.recv().unwrap());
     store_event(beat, & file_name, & msg);
     store_event(beat, & file_name, & msg );
 
