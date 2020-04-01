@@ -6,7 +6,7 @@ use std::fs::{File, OpenOptions};
 use std::io::Write;
 
 
-fn parse(beat: &mut bool, file_name: &mut String, address: &mut String) {
+fn parse(beat: &mut bool, file_name: &mut String) -> String {
     let matches = App::new("BC crawl")
         .version("1.0.0")
         .author("Jazmin Ferreiro  <jazminsofiaf@gmail.com>")
@@ -30,29 +30,27 @@ fn parse(beat: &mut bool, file_name: &mut String, address: &mut String) {
             .help(" Initial address for crawling. Format [a.b.c.d]:ppp"))
         .get_matches();
 
-    let arg_address = matches.value_of("address");
-    match arg_address {
-        None => {
-            println!("-- -s <string>\n Initial address for crawling. Format '[a.b.c.d]:ppp' for example '[seed.btc.petertodd.org]:8333'" )
-        },
-        Some(a) => address.push_str(a)
-    }
-
+    let arg_address = matches.value_of("address").unwrap_or_else(|| {
+        panic!("Error parsing address argument");
+        }
+    );
 
     let arg_beat = matches.is_present("beat");
     if arg_beat{
         *beat = true;
-        return
+        return String::from(arg_address);
     }
 
     let arg_file = matches.value_of("file");
     match arg_file {
-        None => println!("-- -o <string>\n output file name for crawl"),
+        None => panic!("Error parsing file name (not beat flag)"),
         Some(f) => {
             file_name.push_str(f);
             File::create(file_name).expect("failed create file");
         }
     }
+
+    return String::from(arg_address);
 }
 fn store_event(beat: bool, file_name: & String, msg :&String){
     if beat {
@@ -69,9 +67,8 @@ fn main() {
 
     let mut beat: bool = false;
     let mut file_name: String = String::new();
-    let mut address: String = String::new();
 
-    parse(&mut beat, &mut file_name, &mut address);
+    let address: String = parse(&mut beat, &mut file_name);
 
     println!("Initial address: {}", address);
 
