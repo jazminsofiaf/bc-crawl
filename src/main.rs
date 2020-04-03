@@ -1,4 +1,4 @@
-mod crab;
+mod bcmessage;
 
 extern crate clap;
 use clap::{Arg, App};
@@ -76,7 +76,7 @@ fn store_event(beat: bool, msg :&String){
 
 fn main() {
 
-    crab::foo();
+    bcmessage::payload();
 
 
     let (address_channel_tx,address_channel_rx) = mpsc::channel();
