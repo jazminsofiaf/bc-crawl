@@ -6,9 +6,9 @@ use byteorder::LittleEndian;
 use std::time::SystemTime;
 use sha2::{Sha256, Digest};
 use std::net::TcpStream;
-use std::io::Write;
-use std::fs::remove_dir;
+use std::io::{Write, Read};
 use std::fmt::Error;
+use std::io;
 
 
 // services
@@ -80,17 +80,34 @@ pub fn init() {
 
 
 
-// TOP Functions :
-//  SendRequest to a peer returns err obj
-//  ReadMessage from a Peer return command, payload, err
+
+// Read message from a peer return command, payload, err
+pub fn read_message(mut connection: &TcpStream){
+    let mut header_buffer = [0 as u8;HEADER_SIZE];
+    connection.read(& mut header_buffer);
+
+   if header_buffer[START_MAGIC..END_MAGIC] != MAGIC[..]{
+       println!("Error in Magic message header: {:?}", &header_buffer[START_MAGIC..END_MAGIC])
+   }
+
+    let cmd = String::from_utf8_lossy(&header_buffer[START_CMD..END_CMD]);
+    let command = cmd.trim_matches(char::from(0));
+    println!("command: {:?}", command);
+
+    println!("message: {:?}", header_buffer);
 
 
-pub fn send_request(mut connection: TcpStream, message_name: &str) -> std::io::Result<usize> {
+
+}
+
+// Send request to a peer, return result with error or with bytes sent
+pub fn send_request(mut connection: & TcpStream, message_name: &str) -> std::io::Result<usize> {
     let request:Vec<u8> = build_request(message_name);
     let result = connection.write(request.as_slice());
     return result;
-
 }
+
+
 fn build_request(message_name : &str) -> Vec<u8>{
     let mut payload_bytes: Vec<u8> = Vec::new();
     if message_name == MSG_VERSION {

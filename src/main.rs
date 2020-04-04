@@ -94,13 +94,17 @@ fn main() {
         store_event(BEAT, & msg );
     }
 
-    let mut connection:TcpStream = TcpStream::connect("seed.btc.petertodd.org:8333").unwrap();
-    let result =bcmessage::send_request(connection,"version");
+    let mut connection: TcpStream = TcpStream::connect("seed.btc.petertodd.org:8333").unwrap();
+    let result =bcmessage::send_request(&connection,"version");
     match result{
         Err(e)=> println!("error sending request"),
         Ok(bytes_sent)=> println!("{} bytes were sent", bytes_sent),
         _ => {}
     }
+
+    bcmessage::read_message(&connection);
+
+
 
 }
 
