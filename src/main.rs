@@ -7,6 +7,7 @@ use std::io::Write;
 use std::sync::mpsc;
 use std::thread;
 use std::net::TcpStream;
+use crate::bcmessage::ReadResult;
 
 static mut BEAT : bool = false;
 static mut PEER_OUTPUT_FILE_NAME: String = String::new();
@@ -101,7 +102,11 @@ fn main() {
         Ok(bytes_sent)=> println!("{} bytes were sent", bytes_sent),
     }
 
-    bcmessage::read_message(&connection);
+    let read_result:ReadResult  = bcmessage::read_message(&connection);
+
+    println!("receive: {:?} ", read_result.command);
+    println!("receive: {:?} ", read_result.payload);
+    println!("receive: {:?} ", read_result.error);
 
 
 

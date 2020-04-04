@@ -11,6 +11,8 @@ use std::io::{Write, Read};
 
 use std::io::Cursor;
 use byteorder::ReadBytesExt;
+use std::error::Error;
+use std::fs::read;
 
 
 // services
@@ -47,6 +49,11 @@ const MSG_VERSION_ACK:&str = "verack";
 const MSG_GETADDR:&str = "getaddr";
 const MSG_ADDR:&str = "addr";
 
+pub struct ReadResult {
+    pub command: String,
+    pub payload: Vec<u8>,
+    pub error: Option<std::io::Error>
+}
 
 
 pub fn init() {
@@ -84,23 +91,49 @@ pub fn init() {
 
 
 // Read message from a peer return command, payload, err
-pub fn read_message(mut connection: &TcpStream){
+pub fn read_message(mut connection: &TcpStream) -> ReadResult {
+
+    let mut read_result = ReadResult {
+        command: String::new(),
+        payload: Vec::new(),
+        error: None
+    };
+
     let mut header_buffer = [0 as u8;HEADER_SIZE];
-    connection.read(& mut header_buffer).expect("error reading message");
+    return match connection.read(&mut header_buffer) {
+        Ok(_) => {
+            if header_buffer[START_MAGIC..END_MAGIC] != MAGIC[..] {
+                println!("Error in Magic message header: {:?}", &header_buffer[START_MAGIC..END_MAGIC])
+            }
 
-   if header_buffer[START_MAGIC..END_MAGIC] != MAGIC[..]{
-       println!("Error in Magic message header: {:?}", &header_buffer[START_MAGIC..END_MAGIC])
-   }
-
-    let cmd = String::from_utf8_lossy(&header_buffer[START_CMD..END_CMD]);
-    let command = cmd.trim_matches(char::from(0));
-    println!("command: {:?}", command);
-
-    let mut payload_size_reader = Cursor::new(&header_buffer[START_PAYLOAD_LENGTH..END_PAYLOAD_LENGTH]);
-    let payload_size = payload_size_reader.read_u32::<LittleEndian>().unwrap();
-    println!("payload size: {:?}",payload_size);
+            let cmd = String::from_utf8_lossy(&header_buffer[START_CMD..END_CMD]);
+            let command = cmd.trim_matches(char::from(0));
+            read_result.command = String::from(command);
+            let mut payload_size_reader = Cursor::new(&header_buffer[START_PAYLOAD_LENGTH..END_PAYLOAD_LENGTH]);
+            let payload_size = payload_size_reader.read_u32::<LittleEndian>().unwrap();
 
 
+            if payload_size <= 0 { return read_result };
+
+            let mut payload_buffer = vec![0u8; payload_size as usize];
+            match connection.read_exact(&mut payload_buffer) {
+                Ok(_) => {
+                    read_result.payload = payload_buffer;
+                    read_result
+                }
+                Err(e) => {
+                    println!("error reading payload");
+                    read_result.error = Some(e);
+                    read_result
+                }
+            }
+        },
+        Err(e) => {
+            println!("error reading header");
+            read_result.error = Some(e);
+            read_result
+        }
+    }
 }
 
 // Send request to a peer, return result with error or with bytes sent
