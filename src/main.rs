@@ -93,7 +93,7 @@ fn main() {
         store_event(BEAT, & msg );
     }
 
-    bcmessage::get_payload_with_current_date()
+    bcmessage::build_request("version");
 
 }
 

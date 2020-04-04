@@ -18,8 +18,8 @@ lazy_static! {
     static ref TEMPLATE_MESSAGE_PAYLOAD: Mutex<Vec<u8>> = Mutex::new(Vec::with_capacity(105));
 }
 
-const DATE_OFFSET:usize = 12;
-const DATE_LENGTH:usize= 8;
+const START_DATE:usize = 12;
+const END_DATE:usize= 20;
 
 
 // HEADER STRUCT
@@ -80,27 +80,37 @@ pub fn init() {
     TEMPLATE_MESSAGE_PAYLOAD.lock().unwrap().write_u32::<LittleEndian>( height).unwrap();
 }
 
-pub fn get_payload_with_current_date(){
-    let mut payload = TEMPLATE_MESSAGE_PAYLOAD.lock().unwrap().clone();
+pub fn build_request(message_name : &str) {
+    let mut payload_bytes: Vec<u8> = Vec::new();
+    if message_name == MSG_VERSION {
+        payload_bytes = get_payload_with_current_date();
+    }
+    let mut header :Vec<u8> = vec![0; HEADER_SIZE];
+    build_request_message_header(& mut header, message_name,& payload_bytes);
+    println!("{:?}", header);
+    println!("{:?}", header.len());
+    //return append(myHeader.headerBytes[:], payloadBytes...)
+}
+
+fn get_payload_with_current_date() -> Vec<u8> {
+    let mut payload :Vec<u8>  = TEMPLATE_MESSAGE_PAYLOAD.lock().unwrap().clone();
     let mut date :Vec<u8> = Vec::new();
     let unix_timestamp:u64 = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
     date.write_u64::<LittleEndian>(unix_timestamp).unwrap();
+    payload.splice(START_DATE..END_DATE, date.iter().cloned());
 
-    for index in 0..DATE_LENGTH {
-        payload.insert(DATE_OFFSET+ index, date[index]);
-    }
     println!("{:?}", payload);
+    println!("{:?}", payload.len());
     //let array = to_array(TEMPLATE_MESSAGE_PAYLOAD.lock().unwrap().to_vec());
     //println!("{:?}", &array[..]);
-
-    let mut header:Vec<u8> = vec![2; HEADER_SIZE];
-     build_request_message_header(& mut header, MSG_VERSION,& payload )
+    return payload;
 }
 
 fn build_request_message_header(header: & mut Vec<u8>, command_name :&str, payload : &Vec<u8>){
 
     header.splice(START_MAGIC..END_MAGIC, MAGIC.iter().cloned());
     let end_cmd = command_name.as_bytes().len() +START_CMD;
+    if end_cmd > END_CMD { panic!("wrong command") }
     header.splice(START_CMD..end_cmd, command_name.as_bytes().iter().cloned());
 
     let payload_len :u32 = payload.len() as u32;
@@ -112,8 +122,6 @@ fn build_request_message_header(header: & mut Vec<u8>, command_name :&str, paylo
     let checksum = compute_checksum(payload);
     header.splice(START_CHECKSUM..END_CHECKSUM, checksum.iter().cloned());
 
-    println!("{:?}", header);
-    println!("{:?}", header.len());
 }
 
 fn compute_checksum(payload : &Vec<u8>) -> Vec<u8> {
@@ -124,6 +132,5 @@ fn compute_checksum(payload : &Vec<u8>) -> Vec<u8> {
     hasher2.input(sum);
     let result = hasher2.result();
     return result[0..4].to_vec();
-
 }
 
