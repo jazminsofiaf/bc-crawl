@@ -47,12 +47,6 @@ const MSG_ADDR:&str = "addr";
 
 
 
-pub fn to_array(vec : Vec<u8>) -> [u8;105]{
-    let mut array:[u8;105] = [0; 105];
-    array.iter_mut().set_from(vec.iter().cloned());
-    return array
-}
-
 pub fn init() {
     let version:u32 = 70015;
     let services:u64 = NODE_NETWORK | NODE_BLOOM | NODE_WITNESS | NODE_NETWORK_LIMITED;
@@ -91,24 +85,26 @@ pub fn init() {
 //  ReadMessage from a Peer return command, payload, err
 
 
-pub fn send_request( message_name: &str) -> std::io::Result<usize> {
-    let mut stream = TcpStream::connect("seed.btc.petertodd.org:8333")?;
-    let msg:&[u8;1] = &[1];
-    let result = stream.write(msg);
+pub fn send_request(mut connection: TcpStream, message_name: &str) -> std::io::Result<usize> {
+    let request:Vec<u8> = build_request(message_name);
+    let result = connection.write(request.as_slice());
     return result;
 
 }
-fn build_request(message_name : &str) {
+fn build_request(message_name : &str) -> Vec<u8>{
     let mut payload_bytes: Vec<u8> = Vec::new();
     if message_name == MSG_VERSION {
         payload_bytes = get_payload_with_current_date();
     }
     let mut header :Vec<u8> = vec![0; HEADER_SIZE];
     build_request_message_header(& mut header, message_name,& payload_bytes);
-    println!("{:?}", header);
-    println!("{:?}", header.len());
-    //return append(myHeader.headerBytes[:], payloadBytes...)
+
+    let mut request = vec![];
+    request.extend(header);
+    request.extend(payload_bytes);
+    return request;
 }
+
 
 fn get_payload_with_current_date() -> Vec<u8> {
     let mut payload :Vec<u8>  = TEMPLATE_MESSAGE_PAYLOAD.lock().unwrap().clone();
@@ -116,11 +112,6 @@ fn get_payload_with_current_date() -> Vec<u8> {
     let unix_timestamp:u64 = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
     date.write_u64::<LittleEndian>(unix_timestamp).unwrap();
     payload.splice(START_DATE..END_DATE, date.iter().cloned());
-
-    println!("{:?}", payload);
-    println!("{:?}", payload.len());
-    //let array = to_array(TEMPLATE_MESSAGE_PAYLOAD.lock().unwrap().to_vec());
-    //println!("{:?}", &array[..]);
     return payload;
 }
 

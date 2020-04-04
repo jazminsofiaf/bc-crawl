@@ -6,6 +6,7 @@ use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::sync::mpsc;
 use std::thread;
+use std::net::TcpStream;
 
 static mut BEAT : bool = false;
 static mut PEER_OUTPUT_FILE_NAME: String = String::new();
@@ -93,7 +94,8 @@ fn main() {
         store_event(BEAT, & msg );
     }
 
-    let result =bcmessage::send_request("version");
+    let mut connection:TcpStream = TcpStream::connect("seed.btc.petertodd.org:8333").unwrap();
+    let result =bcmessage::send_request(connection,"version");
     match result{
         Err(e)=> println!("error sending request"),
         Ok(bytes_sent)=> println!("{} bytes were sent", bytes_sent),
