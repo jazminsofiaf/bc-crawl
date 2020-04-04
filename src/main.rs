@@ -81,7 +81,6 @@ fn main() {
 
     let (address_channel_tx,address_channel_rx) = mpsc::channel();
 
-
     thread::spawn(move || {
         let address = parse_args();
         address_channel_tx.send(address).unwrap();
@@ -94,7 +93,7 @@ fn main() {
         store_event(BEAT, & msg );
     }
 
-    bcmessage::payload()
+    bcmessage::get_payload_with_current_date()
 
 }
 
