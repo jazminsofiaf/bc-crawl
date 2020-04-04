@@ -93,7 +93,12 @@ fn main() {
         store_event(BEAT, & msg );
     }
 
-    bcmessage::build_request("version");
+    let result =bcmessage::send_request("version");
+    match result{
+        Err(e)=> println!("error sending request"),
+        Ok(bytes_sent)=> println!("{} bytes were sent", bytes_sent),
+        _ => {}
+    }
 
 }
 

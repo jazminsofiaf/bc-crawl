@@ -5,6 +5,10 @@ use byteorder::WriteBytesExt;
 use byteorder::LittleEndian;
 use std::time::SystemTime;
 use sha2::{Sha256, Digest};
+use std::net::TcpStream;
+use std::io::Write;
+use std::fs::remove_dir;
+use std::fmt::Error;
 
 
 // services
@@ -80,7 +84,21 @@ pub fn init() {
     TEMPLATE_MESSAGE_PAYLOAD.lock().unwrap().write_u32::<LittleEndian>( height).unwrap();
 }
 
-pub fn build_request(message_name : &str) {
+
+
+// TOP Functions :
+//  SendRequest to a peer returns err obj
+//  ReadMessage from a Peer return command, payload, err
+
+
+pub fn send_request( message_name: &str) -> std::io::Result<usize> {
+    let mut stream = TcpStream::connect("seed.btc.petertodd.org:8333")?;
+    let msg:&[u8;1] = &[1];
+    let result = stream.write(msg);
+    return result;
+
+}
+fn build_request(message_name : &str) {
     let mut payload_bytes: Vec<u8> = Vec::new();
     if message_name == MSG_VERSION {
         payload_bytes = get_payload_with_current_date();
