@@ -1,4 +1,4 @@
-use itertools::Itertools;
+
 use std::sync::Mutex;
 use lazy_static::lazy_static;
 use byteorder::WriteBytesExt;
@@ -7,8 +7,10 @@ use std::time::SystemTime;
 use sha2::{Sha256, Digest};
 use std::net::TcpStream;
 use std::io::{Write, Read};
-use std::fmt::Error;
-use std::io;
+
+
+use std::io::Cursor;
+use byteorder::ReadBytesExt;
 
 
 // services
@@ -84,7 +86,7 @@ pub fn init() {
 // Read message from a peer return command, payload, err
 pub fn read_message(mut connection: &TcpStream){
     let mut header_buffer = [0 as u8;HEADER_SIZE];
-    connection.read(& mut header_buffer);
+    connection.read(& mut header_buffer).expect("error reading message");
 
    if header_buffer[START_MAGIC..END_MAGIC] != MAGIC[..]{
        println!("Error in Magic message header: {:?}", &header_buffer[START_MAGIC..END_MAGIC])
@@ -94,8 +96,9 @@ pub fn read_message(mut connection: &TcpStream){
     let command = cmd.trim_matches(char::from(0));
     println!("command: {:?}", command);
 
-    println!("message: {:?}", header_buffer);
-
+    let mut payload_size_reader = Cursor::new(&header_buffer[START_PAYLOAD_LENGTH..END_PAYLOAD_LENGTH]);
+    let payload_size = payload_size_reader.read_u32::<LittleEndian>().unwrap();
+    println!("payload size: {:?}",payload_size);
 
 
 }
