@@ -75,8 +75,8 @@ fn store_event(beat: bool, msg :&String){
 
 
 fn main() {
+    bcmessage::init();
 
-    bcmessage::payload();
 
 
     let (address_channel_tx,address_channel_rx) = mpsc::channel();
@@ -94,6 +94,7 @@ fn main() {
         store_event(BEAT, & msg );
     }
 
+    bcmessage::payload()
 
 }
 
