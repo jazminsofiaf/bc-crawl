@@ -6,8 +6,10 @@ use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::sync::mpsc;
 use std::thread;
-use std::net::TcpStream;
+use std::net::{TcpStream, ToSocketAddrs};
 use crate::bcmessage::ReadResult;
+use std::time::Duration;
+use std::net::SocketAddr;
 
 static mut BEAT : bool = false;
 static mut PEER_OUTPUT_FILE_NAME: String = String::new();
@@ -75,6 +77,25 @@ fn store_event(beat: bool, msg :&String){
     }
 }
 
+fn handle_one_peer(){
+
+    let timeout: Duration = Duration::from_millis(600);
+    let socket:SocketAddr = "seed.btc.petertodd.org:8333".to_socket_addrs().unwrap().next().unwrap();
+    let connection: TcpStream =  TcpStream::connect_timeout(&socket, timeout ).expect("Fail to connect");
+    let result =bcmessage::send_request(&connection,"version");
+    match result{
+        Err(_e)=> println!("error sending request"),
+        Ok(bytes_sent)=> println!("{} bytes were sent", bytes_sent),
+    }
+
+    let read_result:ReadResult  = bcmessage::read_message(&connection);
+
+    println!("receive: {:?} ", read_result.command);
+    println!("receive: {:?} ", read_result.payload);
+    println!("receive: {:?} ", read_result.error);
+
+
+}
 
 fn main() {
     bcmessage::init();
@@ -95,21 +116,7 @@ fn main() {
         store_event(BEAT, & msg );
     }
 
-    let connection: TcpStream = TcpStream::connect("seed.btc.petertodd.org:8333").unwrap();
-    let result =bcmessage::send_request(&connection,"version");
-    match result{
-        Err(_e)=> println!("error sending request"),
-        Ok(bytes_sent)=> println!("{} bytes were sent", bytes_sent),
-    }
-
-    let read_result:ReadResult  = bcmessage::read_message(&connection);
-
-    println!("receive: {:?} ", read_result.command);
-    println!("receive: {:?} ", read_result.payload);
-    println!("receive: {:?} ", read_result.error);
-
-
-
+    handle_one_peer();
 }
 
 
