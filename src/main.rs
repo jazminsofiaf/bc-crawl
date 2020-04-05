@@ -10,7 +10,9 @@ use std::net::{TcpStream, ToSocketAddrs};
 use crate::bcmessage::{ReadResult, MSG_VERSION, MSG_VERSION_ACK, MSG_GETADDR, CONN_CLOSE, MSG_ADDR};
 use std::time::Duration;
 use std::net::SocketAddr;
-
+use std::collections::HashMap;
+use std::sync::Mutex;
+use lazy_static::lazy_static;
 use byteorder::{ReadBytesExt, LittleEndian};
 
 static mut BEAT : bool = false;
@@ -33,6 +35,66 @@ const UNIT_32_END: usize = 5;
 const UNIT_64_END: usize = 9;
 
 const MILLISECONDS_TIMEOUT: u64 =600;
+
+
+enum Status {
+    Waiting,
+    Connecting,
+    Connected,
+    Done,
+    Failed
+}
+
+struct PeerStatus  {
+    pub status: Status,
+    pub retries: i32,
+}
+
+
+lazy_static! {
+    static ref ADRESSES_VISITED: Mutex<HashMap<String, PeerStatus>> = {
+        let mut addresses_visited= HashMap::new();
+        Mutex::new(addresses_visited)
+    };
+}
+
+fn get_peer_status(status: Status, retries: i32) -> PeerStatus{
+    let  peer_status = PeerStatus {
+        status,
+        retries
+    };
+    return  peer_status;
+}
+
+fn peer_status(status: Status) -> PeerStatus{
+    return  get_peer_status(status, 0);
+}
+
+fn fail(a_peer :& str){
+    let mut address_status = ADRESSES_VISITED.lock().unwrap();
+
+    address_status.insert(String::from(a_peer), peer_status(Status::Failed));
+    std::mem::drop(address_status);
+}
+
+fn done(a_peer :& str) {
+    let mut address_status = ADRESSES_VISITED.lock().unwrap();
+    address_status.insert(String::from(a_peer), peer_status(Status::Done));
+    std::mem::drop(address_status);
+}
+
+fn retry_address(a_peer: & str) {
+    let mut address_status  = ADRESSES_VISITED.lock().unwrap();
+    if address_status[a_peer].retries > 3  {
+        address_status.insert(String::from(a_peer), peer_status(Status::Failed));
+    } else {
+        //this was different from go code
+        let peer_status =  get_peer_status(Status::Waiting, address_status[a_peer].retries + 1);
+        address_status.insert(String::from(a_peer),peer_status);
+    }
+    std::mem::drop(address_status);
+}
+
 
 
 
@@ -194,7 +256,7 @@ fn handle_one_peer(){
             match bcmessage::send_request(&connection,MSG_VERSION){
                 Err(_)=> {
                     println!("error sending request");
-                    //fail
+                    fail(target_address);
                     return;
                 }
                 _ => {}
@@ -203,13 +265,13 @@ fn handle_one_peer(){
             let received_cmd:String = handle_incoming_message( &connection, &target_address);
             if received_cmd != String::from(MSG_VERSION) {
                 println!("Version Ack not received {}",received_cmd);
-                //fail
+                fail(target_address);
                 return;
             }
 
             match bcmessage::send_request(&connection,MSG_VERSION_ACK){
                 Err(_)=> {
-                    //fail
+                    fail(target_address);
                     return;
                 },
                 _ => {}
@@ -219,13 +281,13 @@ fn handle_one_peer(){
             let received_cmd = handle_incoming_message(&connection, &target_address);
             if received_cmd != String::from(MSG_VERSION_ACK) {
                 println!("Version AckAck not received {}",received_cmd );
-                //fail
+                fail(target_address);
                 return;
             }
 
             match bcmessage::send_request(&connection,MSG_GETADDR){
                 Err(_)=> {
-                    //fail
+                    fail(target_address);
                     return;
                 },
                 _ => {}
@@ -233,14 +295,13 @@ fn handle_one_peer(){
 
 
             let received_cmd = handle_incoming_message(&connection, &target_address);
-            /*if received_cmd != String::from(CONN_CLOSE) {
-                println!("payload received {:?}",read_result.payload);
-                //done
+            if received_cmd == String::from(CONN_CLOSE) {
+                done(target_address);
                 return;
             } else {
-                println!("Bad message {}",read_result.command);
+                println!("Bad message {}",received_cmd);
                 std::process::exit(1);
-            }*/
+            }
         },
     }
 }
