@@ -44,10 +44,11 @@ const START_CHECKSUM:usize = 20;
 const END_CHECKSUM:usize = 24;
 
 // COMMANDS
-const MSG_VERSION:&str = "version";
-const MSG_VERSION_ACK:&str = "verack";
-const MSG_GETADDR:&str = "getaddr";
-const MSG_ADDR:&str = "addr";
+pub const MSG_VERSION:&str = "version";
+pub const MSG_VERSION_ACK:&str = "verack";
+pub const MSG_GETADDR:&str = "getaddr";
+pub const MSG_ADDR:&str = "addr";
+pub const CONN_CLOSE:&str = "CONNCLOSED";
 
 pub struct ReadResult {
     pub command: String,
