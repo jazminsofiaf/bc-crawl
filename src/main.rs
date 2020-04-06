@@ -1,19 +1,21 @@
 mod bcmessage;
 
 extern crate clap;
+use chrono::{DateTime, NaiveDateTime, Utc};
 use clap::{Arg, App};
 use std::fs::{File, OpenOptions};
 use std::io::{Write,  Cursor};
 use std::sync::mpsc;
 use std::thread;
-use std::net::{TcpStream, ToSocketAddrs};
+use std::net::{TcpStream, ToSocketAddrs, IpAddr, Ipv4Addr};
 use crate::bcmessage::{ReadResult, MSG_VERSION, MSG_VERSION_ACK, MSG_GETADDR, CONN_CLOSE, MSG_ADDR};
 use std::time::Duration;
 use std::net::SocketAddr;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use lazy_static::lazy_static;
-use byteorder::{ReadBytesExt, LittleEndian};
+use byteorder::{ReadBytesExt, LittleEndian, BigEndian};
+use dns_lookup::lookup_addr;
 
 static mut BEAT : bool = false;
 static mut PEER_OUTPUT_FILE_NAME: String = String::new();
@@ -33,6 +35,13 @@ const UNIT_8_END: usize = 2;
 const UNIT_16_END: usize = 3;
 const UNIT_32_END: usize = 5;
 const UNIT_64_END: usize = 9;
+
+
+const ADDRESS_LEN: usize =30;
+const TIME_FIELD_END: usize =4;
+const SERVICES_END:usize = 12;
+const IP_FIELD_END:usize= 28;
+const PORT_FIELD_END:usize= 30;
 
 const MILLISECONDS_TIMEOUT: u64 =600;
 
@@ -200,9 +209,41 @@ fn process_addr_message(target_address: &str, payload: &Vec<u8>) -> u64{
     }
     let addr_number = get_compact_int(payload);
     println!("Received {} addresses", addr_number);
-    if addr_number > 1 {
-        let start_byte = get_start_byte(&addr_number);
+    if addr_number < 1{
+        return addr_number;
     }
+
+    let start_byte = get_start_byte(&addr_number);
+
+    let mut read_addr = 0 as usize;
+    let addr_begins_at = start_byte + (ADDRESS_LEN * read_addr);
+    let mut time_field =  Cursor::new(payload[addr_begins_at..addr_begins_at+ TIME_FIELD_END].to_vec());
+    let time_int = time_field.read_u32::<LittleEndian>().unwrap() as i64;
+    let date_time =  DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(time_int, 0), Utc);
+    let services = payload[addr_begins_at+ TIME_FIELD_END..addr_begins_at+ SERVICES_END].to_vec();
+    let ip_addr_field = payload[addr_begins_at+ SERVICES_END..addr_begins_at+ IP_FIELD_END].to_vec();
+
+    let mut array_v6 = [0; 16];
+    array_v6.copy_from_slice(&ip_addr_field[..]);
+    let ip_v6 = IpAddr::from(array_v6);
+
+    let mut array_v4 = [0; 4];
+    array_v4.copy_from_slice(&ip_addr_field[12..]);
+    let ip_v4 = IpAddr::from(array_v4);
+
+
+    let mut port_field = Cursor::new(payload[addr_begins_at+ IP_FIELD_END..addr_begins_at+ PORT_FIELD_END].to_vec());
+    let port = port_field.read_u16::<BigEndian>().unwrap();
+
+    println!("time  {} ", date_time.format("%Y-%m-%d %H:%M:%S"));
+    println!("services  {:?} ", services);
+    println!("ip {:?} = {} ", ip_v4, lookup_addr(&ip_v4).unwrap());
+    println!("ip {:?} = {} ", ip_v6, lookup_addr(&ip_v6).unwrap());
+    println!("port  {:?} ", port);
+
+
+
+
     return addr_number;
 }
 
@@ -322,7 +363,10 @@ fn main() {
         store_event(BEAT, & msg );
     }
 
-    handle_one_peer();
+    let payload = vec![0x01, 0xE2, 0x15, 0x10, 0x4D, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 , 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x0A, 0x00, 0x00, 0x01, 0x20, 0x8D];
+    process_addr_message("target_address", &payload);
+
+    //handle_one_peer();
 
     /*
     thread::spawn(move || {
