@@ -177,8 +177,7 @@ fn get_compact_int(payload: &Vec<u8>) -> u64 {
         let mut bytes_reader = Cursor::new(payload[NUM_START..UNIT_64_END].to_vec());
         return bytes_reader.read_u64::<LittleEndian>().unwrap() as u64;
     }
-    let mut bytes_reader = Cursor::new(payload[NUM_START..UNIT_8_END].to_vec());
-    return bytes_reader.read_u8().unwrap() as u64;
+    return storage_length as u64;
 
 }
 
@@ -200,11 +199,9 @@ fn process_addr_message(target_address: &str, payload: &Vec<u8>) -> u64{
         return 0;
     }
     let addr_number = get_compact_int(payload);
-
+    println!("Received {} addresses", addr_number);
     if addr_number > 1 {
         let start_byte = get_start_byte(&addr_number);
-        println!("Received {} addresses", addr_number);
-
     }
     return addr_number;
 }
