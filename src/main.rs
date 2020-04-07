@@ -18,6 +18,7 @@ use byteorder::{ReadBytesExt, LittleEndian, BigEndian};
 use dns_lookup::lookup_addr;
 
 
+
 struct PeerLogger {
     out_stream: Box<dyn Write + Send>
 }
@@ -97,6 +98,7 @@ const MILLISECONDS_TIMEOUT: u64 =600;
 const ADDRESSES_RECEIVED_THRESHOLD: u64 = 5;
 
 
+#[derive(PartialEq)]
 enum Status {
     Waiting,
     Connecting,
@@ -111,8 +113,6 @@ struct PeerStatus  {
 }
 
 
-
-
 fn get_peer_status(status: Status, retries: i32) -> PeerStatus{
     let  peer_status = PeerStatus {
         status,
@@ -125,9 +125,20 @@ fn peer_status(status: Status) -> PeerStatus{
     return  get_peer_status(status, 0);
 }
 
+fn is_waiting(a_peer: & str) -> bool {
+    let mut address_visited = ADRESSES_VISITED.lock().unwrap();
+    let mut is_waiting = false;
+    if !address_visited.contains_key(a_peer) || address_visited.get(a_peer).unwrap().status == Status::Waiting{
+        address_visited.insert(String::from(a_peer), peer_status(Status::Connecting));
+        is_waiting = true
+    }
+    std::mem::drop(address_visited);
+    return is_waiting
+}
+
+
 fn fail(a_peer :& str){
     let mut address_status = ADRESSES_VISITED.lock().unwrap();
-
     address_status.insert(String::from(a_peer), peer_status(Status::Failed));
     std::mem::drop(address_status);
 }
@@ -469,6 +480,7 @@ fn main() {
     });
 
     println!("address_channel= {}", address_channel_rx.recv().unwrap());
+    
 
     handle_one_peer();
 
