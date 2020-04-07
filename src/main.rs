@@ -4,7 +4,7 @@ extern crate clap;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use clap::{Arg, App};
 use std::fs::{File, OpenOptions};
-use std::io::{Write,  Cursor};
+use std::io::{LineWriter, stderr,stdout, Write, Cursor};
 use std::sync::mpsc;
 use std::thread;
 use std::net::{TcpStream, ToSocketAddrs, IpAddr};
@@ -17,14 +17,47 @@ use lazy_static::lazy_static;
 use byteorder::{ReadBytesExt, LittleEndian, BigEndian};
 use dns_lookup::lookup_addr;
 
+
+struct PeerLogger {
+    out_stream: Box<dyn Write + Send>
+}
+
+
+impl PeerLogger {
+    fn new() -> PeerLogger {
+        let default_logger = PeerLogger {
+            out_stream:  Box::new(LineWriter::new(stdout())) as Box<dyn Write + Send>
+        };
+        return  default_logger;
+    }
+
+    fn set_output_file(&mut self, outfile: &str) {
+        let logfile = match OpenOptions::new().create(true).truncate(true).write(true).open(outfile) {
+            Ok(f)  => Box::new(LineWriter::new(f)) as Box<dyn Write + Send>,
+            Err(e) => {
+                println!("Filed to create output file: {}", e );
+                Box::new(LineWriter::new(stderr())) as Box<dyn Write + Send>
+            }
+        };
+
+        self.out_stream = logfile;
+    }
+
+    fn log(&mut self, msg: &str) {
+        self.out_stream.write_all(msg.as_ref()).expect("error at logging");
+    }
+}
+
+
 lazy_static! {
     static ref ADRESSES_VISITED: Mutex<HashMap<String, PeerStatus>> = {
         let addresses_visited= HashMap::new();
         Mutex::new(addresses_visited)
     };
+    static ref PEER_LOG_FILE : Mutex<PeerLogger> = Mutex::new(PeerLogger::new());
 }
 static mut BEAT : bool = false;
-static mut PEER_OUTPUT_FILE_NAME: String = String::new();
+
 
 // storage length
 const UNIT_16: u8 = 0xFD;
@@ -152,9 +185,10 @@ fn parse_args() -> String {
     let arg_file = matches.value_of("file");
     match arg_file {
         None => panic!("Error parsing file name (not beat flag)"),
-        Some(f) =>  unsafe {
-            PEER_OUTPUT_FILE_NAME.push_str(f);
-            File::create(f).expect("failed create file");
+        Some(f) =>  {
+            let mut guard = PEER_LOG_FILE.lock().unwrap();
+            guard.set_output_file(f);
+            drop(guard);
         }
     }
 
@@ -167,11 +201,10 @@ fn store_event(beat: bool, msg :&String){
         return;
     }
 
-    unsafe{
-        let file_name = String::from(&PEER_OUTPUT_FILE_NAME);
-        let mut peer_log_file:File =  OpenOptions::new().append(true).open(file_name).expect("filed to open file");
-        peer_log_file.write_all( msg.as_bytes()).expect("failed to write in file");
-    }
+    let mut guard = PEER_LOG_FILE.lock().unwrap();
+    guard.log(msg.as_str());
+    drop(guard);
+
 }
 
 fn get_compact_int(payload: &Vec<u8>) -> u64 {
