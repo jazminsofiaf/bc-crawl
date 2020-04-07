@@ -55,8 +55,11 @@ lazy_static! {
         Mutex::new(addresses_visited)
     };
     static ref PEER_LOG_FILE : Mutex<PeerLogger> = Mutex::new(PeerLogger::new());
+    static ref BEAT: Mutex<bool> = Mutex::new(false);
+
 }
-static mut BEAT : bool = false;
+
+
 
 
 // storage length
@@ -176,9 +179,8 @@ fn parse_args() -> String {
 
     let arg_beat = matches.is_present("beat");
     if arg_beat{
-        unsafe{
-            BEAT = true;
-        };
+        let mut beat = BEAT.lock().unwrap();
+        *beat = true;
         return String::from(arg_address);
     }
 
@@ -195,8 +197,9 @@ fn parse_args() -> String {
     return String::from(arg_address);
 }
 
-fn store_event(beat: bool, msg :&String){
-    if beat {
+fn store_event(msg :&String){
+    let mut beat = BEAT.lock().unwrap();
+    if *beat {
         print!("beat\n");
         return;
     }
@@ -301,7 +304,7 @@ fn process_addr_message(target_address: &str, payload: &Vec<u8>) -> u64{
 
         //addressChannel <- newPeer
         unsafe {
-            store_event(BEAT, & msg);
+            store_event( & msg);
         }
         read_addr = read_addr +1;
     }
