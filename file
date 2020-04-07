@@ -1,2 +1,3 @@
-name: [seed.btc.petertodd.org]:8333
-name: [seed.btc.petertodd.org]:8333
+PAR address= [ V4(0.0.16.1) = "0.0.16.1", V6(2601:5c1:4400:10f::1001) = "2601:5c1:4400:10f::1001" ]    port = 8333   time = 2020-03-19 18:35:33  now = 2020-04-07 00:23:01  since = 1576048.120208s  target address = seed.btc.petertodd.org:8333  
+PAR address= [ V4(182.39.129.219) = "182.39.129.219", V6(::ffff:182.39.129.219) = "::ffff:182.39.129.219" ]    port = 8333   time = 2020-03-18 15:00:00  now = 2020-04-07 00:23:01  since = 1675381.164442s  target address = seed.btc.petertodd.org:8333  
+PAR address= [ V4(165.22.44.115) = "165.22.44.115", V6(::ffff:165.22.44.115) = "::ffff:165.22.44.115" ]    port = 8333   time = 2020-03-11 05:59:37  now = 2020-04-07 00:23:01  since = 2312604.495009s  target address = seed.btc.petertodd.org:8333  
