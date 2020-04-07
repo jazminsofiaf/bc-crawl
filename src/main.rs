@@ -137,15 +137,15 @@ fn is_waiting(a_peer: & str) -> bool {
 }
 
 
-fn fail(a_peer :& str){
+fn fail(a_peer :String){
     let mut address_status = ADRESSES_VISITED.lock().unwrap();
-    address_status.insert(String::from(a_peer), peer_status(Status::Failed));
+    address_status.insert(a_peer, peer_status(Status::Failed));
     std::mem::drop(address_status);
 }
 
-fn done(a_peer :& str) {
+fn done(a_peer :String) {
     let mut address_status = ADRESSES_VISITED.lock().unwrap();
-    address_status.insert(String::from(a_peer), peer_status(Status::Done));
+    address_status.insert(a_peer, peer_status(Status::Done));
     std::mem::drop(address_status);
 }
 
@@ -161,9 +161,9 @@ fn retry_address(a_peer: & str) {
     std::mem::drop(address_status);
 }
 
-fn register_pvm_connection(a_peer:& str) {
+fn register_pvm_connection(a_peer:String) {
     let mut address_status = ADRESSES_VISITED.lock().unwrap();
-    address_status.insert(String::from(a_peer), peer_status(Status::Connected));
+    address_status.insert(a_peer, peer_status(Status::Connected));
     std::mem::drop(address_status);
 }
 
@@ -274,7 +274,7 @@ fn get_date_time(time_vec: Vec<u8>) -> DateTime<Utc>{
     return DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(time_int, 0), Utc);
 }
 
-fn process_version_message( target_address: &str, payload: &Vec<u8>){
+fn process_version_message( target_address: String, payload: &Vec<u8>){
 
     let mut version_field =  Cursor::new(payload[..VERSION_END].to_vec());
     let version_number = version_field.read_u32::<LittleEndian>().unwrap() as i64;
@@ -309,7 +309,7 @@ fn process_version_message( target_address: &str, payload: &Vec<u8>){
 
 }
 
-fn process_addr_message(target_address: &str, payload: &Vec<u8>) -> u64{
+fn process_addr_message(target_address: String, payload: &Vec<u8>) -> u64{
     if payload.len() == 0 {
         return 0;
     }
@@ -371,7 +371,7 @@ fn process_addr_message(target_address: &str, payload: &Vec<u8>) -> u64{
     return addr_number;
 }
 
-fn handle_incoming_message(connection:& TcpStream, target_address: &str, in_chain: Sender<String>)  {
+fn handle_incoming_message(connection:& TcpStream, target_address: String, in_chain: Sender<String>)  {
 
     loop {
         let read_result:ReadResult  = bcmessage::read_message(&connection);
@@ -385,7 +385,8 @@ fn handle_incoming_message(connection:& TcpStream, target_address: &str, in_chai
                 let payload = read_result.payload;
 
                 if command  == String::from(MSG_VERSION) && payload.len() > 0 {
-                    process_version_message(target_address, &payload);
+                    let peer = target_address.clone();
+                    process_version_message(peer, &payload);
                     in_chain.send(command).unwrap();
                     continue;
                 }
@@ -394,7 +395,8 @@ fn handle_incoming_message(connection:& TcpStream, target_address: &str, in_chai
                     continue;
                 }
                 if command == String::from(MSG_ADDR){
-                    let num_addr = process_addr_message(target_address, &payload);
+                    let peer = target_address.clone();
+                    let num_addr = process_addr_message(peer, &payload);
                     if num_addr > ADDRESSES_RECEIVED_THRESHOLD {
                         print!("more than 5 addresses");
                         in_chain.send(connection_close).unwrap();
@@ -409,9 +411,8 @@ fn handle_incoming_message(connection:& TcpStream, target_address: &str, in_chai
 
 }
 
-fn handle_one_peer(){
+fn handle_one_peer(target_address: String){
     let timeout: Duration = Duration::from_millis(MILLISECONDS_TIMEOUT);
-    let target_address: &str = "seed.btc.petertodd.org:8333";
     let socket:SocketAddr = target_address.to_socket_addrs().unwrap().next().unwrap();
     match TcpStream::connect_timeout(&socket, timeout) {
         Err(e) => {
@@ -421,11 +422,11 @@ fn handle_one_peer(){
         Ok(c) => {
 
             let connection = Arc::new(c);
-
+            let peer = target_address.clone();
             let (in_chain_tx,in_chain_rx) = mpsc::channel();
             let connection_rc = connection.clone();
             thread::spawn(move || {
-                handle_incoming_message( &connection_rc, &target_address, in_chain_tx);
+                handle_incoming_message( &connection_rc, peer, in_chain_tx);
             });
 
             match bcmessage::send_request(&connection,MSG_VERSION){
@@ -487,7 +488,6 @@ fn main() {
 
 
     let (address_channel_tx,address_channel_rx) = mpsc::channel();
-
     thread::spawn(move || {
         let address = parse_args();
         address_channel_tx.send(address).unwrap();
@@ -495,8 +495,9 @@ fn main() {
 
     println!("address_channel= {}", address_channel_rx.recv().unwrap());
 
+    //let (address_channel_tx,address_channel_rx) = mpsc::channel();
 
-    handle_one_peer();
+    handle_one_peer(String::from("seed.btc.petertodd.org:8333"));
 
     /*
     thread::spawn(move || {
