@@ -5,7 +5,7 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use clap::{Arg, App};
 use std::fs::OpenOptions;
 use std::io::{LineWriter, stderr,stdout, Write, Cursor};
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc};
 use std::thread;
 use std::net::{TcpStream, ToSocketAddrs, IpAddr};
 use crate::bcmessage::{ReadResult, MSG_VERSION, MSG_VERSION_ACK, MSG_GETADDR, CONN_CLOSE, MSG_ADDR};
@@ -16,7 +16,7 @@ use std::sync::Mutex;
 use lazy_static::lazy_static;
 use byteorder::{ReadBytesExt, LittleEndian, BigEndian};
 use dns_lookup::lookup_addr;
-
+use std::sync::mpsc::Sender;
 
 
 struct PeerLogger {
@@ -371,29 +371,34 @@ fn process_addr_message(target_address: &str, payload: &Vec<u8>) -> u64{
     return addr_number;
 }
 
-fn handle_incoming_message(connection:& TcpStream, target_address: &str) -> String {
+fn handle_incoming_message(connection:& TcpStream, target_address: &str, in_chain: Sender<String>)  {
 
     loop {
         let read_result:ReadResult  = bcmessage::read_message(&connection);
         let connection_close = String::from(CONN_CLOSE);
-        return match read_result.error {
-            Some(_error)=> connection_close,
+        match read_result.error {
+            Some(_error) => {
+                in_chain.send( connection_close).unwrap();
+            }
             _ => {
                 let command = read_result.command;
                 let payload = read_result.payload;
 
                 if command  == String::from(MSG_VERSION) && payload.len() > 0 {
                     process_version_message(target_address, &payload);
-                    return command;
+                    in_chain.send(command).unwrap();
+                    continue;
                 }
                 if command == String::from(MSG_VERSION_ACK) {
-                    return command;
+                    in_chain.send(command).unwrap();
+                    continue;
                 }
                 if command == String::from(MSG_ADDR){
                     let num_addr = process_addr_message(target_address, &payload);
                     if num_addr > ADDRESSES_RECEIVED_THRESHOLD {
                         print!("more than 5 addresses");
-                        return connection_close;
+                        in_chain.send(connection_close).unwrap();
+                        break;
                     }
                 }
                 continue;
@@ -413,7 +418,16 @@ fn handle_one_peer(){
             println!("Fail to connect: {}", e)
             //retry address
         },
-        Ok(connection) => {
+        Ok(c) => {
+
+            let connection = Arc::new(c);
+
+            let (in_chain_tx,in_chain_rx) = mpsc::channel();
+            let connection_rc = connection.clone();
+            thread::spawn(move || {
+                handle_incoming_message( &connection_rc, &target_address, in_chain_tx);
+            });
+
             match bcmessage::send_request(&connection,MSG_VERSION){
                 Err(e)=> {
                     println!("error sending request: {}", e);
@@ -423,7 +437,7 @@ fn handle_one_peer(){
                 _ => {}
             }
 
-            let received_cmd:String = handle_incoming_message( &connection, &target_address);
+            let received_cmd:String =  in_chain_rx.recv().unwrap();
             if received_cmd != String::from(MSG_VERSION) {
                 println!("Version Ack not received {}",received_cmd);
                 fail(target_address);
@@ -439,7 +453,7 @@ fn handle_one_peer(){
             }
 
 
-            let received_cmd = handle_incoming_message(&connection, &target_address);
+            let received_cmd =  in_chain_rx.recv().unwrap();
             if received_cmd != String::from(MSG_VERSION_ACK) {
                 println!("Version AckAck not received {}",received_cmd );
                 fail(target_address);
@@ -455,7 +469,7 @@ fn handle_one_peer(){
             }
 
 
-            let received_cmd = handle_incoming_message(&connection, &target_address);
+            let received_cmd =  in_chain_rx.recv().unwrap();
             if received_cmd == String::from(CONN_CLOSE) {
                 done(target_address);
                 return;
@@ -480,7 +494,7 @@ fn main() {
     });
 
     println!("address_channel= {}", address_channel_rx.recv().unwrap());
-    
+
 
     handle_one_peer();
 
