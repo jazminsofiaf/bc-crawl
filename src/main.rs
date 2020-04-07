@@ -3,7 +3,7 @@ mod bcmessage;
 extern crate clap;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use clap::{Arg, App};
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::{LineWriter, stderr,stdout, Write, Cursor};
 use std::sync::mpsc;
 use std::thread;
@@ -78,12 +78,19 @@ const UNIT_16_END: usize = 3;
 const UNIT_32_END: usize = 5;
 const UNIT_64_END: usize = 9;
 
+// offset for version cmd
+const VERSION_END: usize =4;
+const TIMESTAMP_END:usize= 20;
+const USER_AGENT: usize = 80;
 
+// offset for addr cmd
 const ADDRESS_LEN: usize =30;
 const TIME_FIELD_END: usize =4;
 const SERVICES_END:usize = 12;
 const IP_FIELD_END:usize= 28;
 const PORT_FIELD_END:usize= 30;
+
+
 
 const MILLISECONDS_TIMEOUT: u64 =600;
 
@@ -143,6 +150,13 @@ fn retry_address(a_peer: & str) {
     std::mem::drop(address_status);
 }
 
+fn register_pvm_connection(a_peer:& str) {
+    let mut address_status = ADRESSES_VISITED.lock().unwrap();
+    address_status.insert(String::from(a_peer), peer_status(Status::Connected));
+    std::mem::drop(address_status);
+}
+
+
 
 
 
@@ -198,7 +212,7 @@ fn parse_args() -> String {
 }
 
 fn store_event(msg :&String){
-    let mut beat = BEAT.lock().unwrap();
+    let beat = BEAT.lock().unwrap();
     if *beat {
         print!("beat\n");
         return;
@@ -229,21 +243,58 @@ fn get_compact_int(payload: &Vec<u8>) -> u64 {
 
 }
 
-fn get_start_byte(addr_number: & u64) -> usize {
-    if addr_number < & SIZE_FD {
+fn get_start_byte(variable_length_int: & usize) -> usize {
+    let size = *variable_length_int as u64;
+    if size < SIZE_FD {
         return NUM_START;
     }
-    if addr_number <= & SIZE_FFFF {
+    if size <= SIZE_FFFF {
         return  UNIT_16_END;
     }
-    if addr_number <= & SIZE_FFFF_FFFF {
+    if size <= SIZE_FFFF_FFFF {
         return  UNIT_32_END
     }
     return UNIT_64_END
 }
 
+fn get_date_time(time_vec: Vec<u8>) -> DateTime<Utc>{
+    let mut time_field =  Cursor::new(time_vec);
+    let time_int = time_field.read_u32::<LittleEndian>().unwrap() as i64;
+    return DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(time_int, 0), Utc);
+}
+
 fn process_version_message( target_address: &str, payload: &Vec<u8>){
 
+    let mut version_field =  Cursor::new(payload[..VERSION_END].to_vec());
+    let version_number = version_field.read_u32::<LittleEndian>().unwrap() as i64;
+    let services = payload[VERSION_END..SERVICES_END].to_vec();
+    let peer_time = get_date_time(payload[SERVICES_END..TIMESTAMP_END].to_vec());
+
+    let useragent_size = get_compact_int(&payload[USER_AGENT..].to_vec()) as usize;
+    let start_byte= get_start_byte(&useragent_size);
+
+    let mut user_agent = String::new();
+    if USER_AGENT + start_byte + useragent_size < payload.len() {
+        if useragent_size > 0 {
+            let user_agent_slice = &payload[(USER_AGENT + start_byte)..(USER_AGENT + start_byte + useragent_size)];
+            user_agent.push_str(String::from_utf8(user_agent_slice.to_vec()).unwrap().as_str() );
+
+        }
+    }
+
+    let mut msg: String  = String::new();
+    msg.push_str(format!("PVM peer = {}  ", target_address).as_ref());
+    msg.push_str(format!("version = {}   ", version_number).as_str());
+    msg.push_str(format!("user agent = {}   ", user_agent).as_str());
+    msg.push_str(format!("time = {}  ", peer_time.format("%Y-%m-%d %H:%M:%S")).as_str());
+    msg.push_str(format!("now = {}  ", Into::<DateTime<Utc>>::into(SystemTime::now()).format("%Y-%m-%d %H:%M:%S")).as_str());
+    msg.push_str(format!("since = {:?}  ",SystemTime::now().duration_since(SystemTime::from(peer_time)).unwrap_or_default() ).as_str());
+    msg.push_str(format!("services = {:?}\n", services ).as_str());
+
+    println!("ip {} ", msg);
+
+    store_event(&msg);
+    register_pvm_connection(target_address);
 
 }
 
@@ -257,21 +308,19 @@ fn process_addr_message(target_address: &str, payload: &Vec<u8>) -> u64{
         return addr_number;
     }
 
-    let start_byte = get_start_byte(&addr_number);
+    let start_byte = get_start_byte(& (addr_number as usize));
 
     let mut read_addr = 0 ;
 
     while read_addr < addr_number {
 
-        if(read_addr == 3){
+        if read_addr == 3 {
             // TODO remove this break
             break;
         }
 
         let addr_begins_at = start_byte + (ADDRESS_LEN * read_addr as usize);
-        let mut time_field =  Cursor::new(payload[addr_begins_at..addr_begins_at+ TIME_FIELD_END].to_vec());
-        let time_int = time_field.read_u32::<LittleEndian>().unwrap() as i64;
-        let date_time =  DateTime::<Utc>::from_utc(NaiveDateTime::from_timestamp(time_int, 0), Utc);
+        let date_time = get_date_time(payload[addr_begins_at..addr_begins_at+ TIME_FIELD_END].to_vec());
         let services = payload[addr_begins_at+ TIME_FIELD_END..addr_begins_at+ SERVICES_END].to_vec();
         let ip_addr_field = payload[addr_begins_at+ SERVICES_END..addr_begins_at+ IP_FIELD_END].to_vec();
 
@@ -287,8 +336,6 @@ fn process_addr_message(target_address: &str, payload: &Vec<u8>) -> u64{
         let mut port_field = Cursor::new(payload[addr_begins_at+ IP_FIELD_END..addr_begins_at+ PORT_FIELD_END].to_vec());
         let port = port_field.read_u16::<BigEndian>().unwrap();
 
-        println!("time  {} ", date_time.format("%Y-%m-%d %H:%M:%S"));
-        println!("services  {:?} ", services);
         println!("ip {:?} = {} ", ip_v4, lookup_addr(&ip_v4).unwrap());
         println!("ip {:?} = {} ", ip_v6, lookup_addr(&ip_v6).unwrap());
         println!("port  {:?} ", port);
@@ -300,19 +347,20 @@ fn process_addr_message(target_address: &str, payload: &Vec<u8>) -> u64{
         msg.push_str(format!("time = {}  ", date_time.format("%Y-%m-%d %H:%M:%S")).as_str());
         msg.push_str(format!("now = {}  ", Into::<DateTime<Utc>>::into(SystemTime::now()).format("%Y-%m-%d %H:%M:%S")).as_str());
         msg.push_str(format!("since = {:?}  ",SystemTime::now().duration_since(SystemTime::from(date_time)).unwrap_or_default() ).as_str());
-        msg.push_str(format!("target address = {}  \n", target_address ).as_str());
+        msg.push_str(format!("services = {:?}     ", services ).as_str());
+        msg.push_str(format!("target address = {}\n", target_address ).as_str());
 
         //addressChannel <- newPeer
-        unsafe {
-            store_event( & msg);
-        }
+
+        store_event( & msg);
+
         read_addr = read_addr +1;
     }
 
     return addr_number;
 }
 
-fn handle_incoming_message(mut connection:& TcpStream, target_address: &str) -> String {
+fn handle_incoming_message(connection:& TcpStream, target_address: &str) -> String {
 
     loop {
         let read_result:ReadResult  = bcmessage::read_message(&connection);
@@ -350,14 +398,14 @@ fn handle_one_peer(){
     let target_address: &str = "seed.btc.petertodd.org:8333";
     let socket:SocketAddr = target_address.to_socket_addrs().unwrap().next().unwrap();
     match TcpStream::connect_timeout(&socket, timeout) {
-        Err(_) => {
-            println!("Fail to connect")
+        Err(e) => {
+            println!("Fail to connect: {}", e)
             //retry address
         },
         Ok(connection) => {
             match bcmessage::send_request(&connection,MSG_VERSION){
-                Err(_)=> {
-                    println!("error sending request");
+                Err(e)=> {
+                    println!("error sending request: {}", e);
                     fail(target_address);
                     return;
                 }
