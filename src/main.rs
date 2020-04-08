@@ -58,7 +58,6 @@ lazy_static! {
     };
     static ref PEER_LOG_FILE : Mutex<PeerLogger> = Mutex::new(PeerLogger::new());
     static ref BEAT: Mutex<bool> = Mutex::new(false);
-
 }
 
 
@@ -310,7 +309,7 @@ fn process_version_message( target_address: String, payload: &Vec<u8>){
 
 }
 
-fn process_addr_message(target_address: String, payload: &Vec<u8>) -> u64{
+fn process_addr_message(target_address: String, payload: &Vec<u8>, address_channel: &Sender<String>) -> u64{
     if payload.len() == 0 {
         return 0;
     }
@@ -348,11 +347,6 @@ fn process_addr_message(target_address: String, payload: &Vec<u8>) -> u64{
         let mut port_field = Cursor::new(payload[addr_begins_at+ IP_FIELD_END..addr_begins_at+ PORT_FIELD_END].to_vec());
         let port = port_field.read_u16::<BigEndian>().unwrap();
 
-        println!("ip {:?} = {} ", ip_v4, lookup_addr(&ip_v4).unwrap());
-        println!("ip {:?} = {} ", ip_v6, lookup_addr(&ip_v6).unwrap());
-        println!("port  {:?} ", port);
-
-
         let mut msg:String  = String::new();
         msg.push_str(format!("PAR address= [ {:?} = {:?}, {:?} = {:?} ]    ", ip_v4, lookup_addr(&ip_v4).unwrap(),  ip_v6, lookup_addr(&ip_v6).unwrap()).as_str());
         msg.push_str(format!("port = {:?}   ", port).as_str());
@@ -362,7 +356,9 @@ fn process_addr_message(target_address: String, payload: &Vec<u8>) -> u64{
         msg.push_str(format!("services = {:?}     ", services ).as_str());
         msg.push_str(format!("target address = {}\n", target_address ).as_str());
 
-        //addressChannel <- newPeer
+        let new_peer : String = format!(" {}:{:?} ", ip_v4, port);
+        println!("new peer {} ", new_peer);
+        //address_channel.send(new_peer).unwrap();
 
         store_event( & msg);
 
@@ -372,7 +368,7 @@ fn process_addr_message(target_address: String, payload: &Vec<u8>) -> u64{
     return addr_number;
 }
 
-fn handle_incoming_message(connection:& TcpStream, target_address: String, in_chain: Sender<String>)  {
+fn handle_incoming_message(connection:& TcpStream, target_address: String, in_chain: Sender<String>, address_channel: Sender<String>)  {
 
     loop {
         let read_result:ReadResult  = bcmessage::read_message(&connection);
@@ -397,7 +393,7 @@ fn handle_incoming_message(connection:& TcpStream, target_address: String, in_ch
                 }
                 if command == String::from(MSG_ADDR){
                     let peer = target_address.clone();
-                    let num_addr = process_addr_message(peer, &payload);
+                    let num_addr = process_addr_message(peer, &payload, &address_channel);
                     if num_addr > ADDRESSES_RECEIVED_THRESHOLD {
                         print!("more than 5 addresses");
                         in_chain.send(connection_close).unwrap();
@@ -412,7 +408,7 @@ fn handle_incoming_message(connection:& TcpStream, target_address: String, in_ch
 
 }
 
-fn handle_one_peer(connecting_start_channel: Receiver<String>){
+fn handle_one_peer(connecting_start_channel: Receiver<String>, address_channel_tx: Sender<String>){
     let target_address: String = connecting_start_channel.recv().unwrap();
     let timeout: Duration = Duration::from_millis(MILLISECONDS_TIMEOUT);
     let socket:SocketAddr = target_address.to_socket_addrs().unwrap().next().unwrap();
@@ -428,7 +424,7 @@ fn handle_one_peer(connecting_start_channel: Receiver<String>){
             let (in_chain_tx,in_chain_rx) = mpsc::channel();
             let connection_rc = connection.clone();
             thread::spawn(move || {
-                handle_incoming_message( &connection_rc, peer, in_chain_tx);
+                handle_incoming_message( &connection_rc, peer, in_chain_tx, address_channel_tx);
             });
 
             match bcmessage::send_request(&connection,MSG_VERSION){
@@ -495,11 +491,13 @@ fn main() {
         let address = parse_args();
         address_channel_tx.send(address).unwrap();
     });
-    
 
     connecting_channel_tx.send(address_channel_rx.recv().unwrap());
 
-    handle_one_peer(connecting_channel_rx);
+    //shadowing
+    let (address_channel_tx,address_channel_rx) = mpsc::channel();
+
+    handle_one_peer(connecting_channel_rx, address_channel_tx);
 
     /*
     thread::spawn(move || {
