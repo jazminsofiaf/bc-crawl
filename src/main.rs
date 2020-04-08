@@ -485,28 +485,24 @@ fn handle_one_peer(target_address: String, address_channel_tx: Sender<String>){
 fn main() {
     bcmessage::init();
 
-    let (address_channel_sender, address_channel_receiver) = mpsc::channel();
     let (peer_channel_sender, peer_channel_receiver) = mpsc::channel();
 
 
-    let address_channel_first_sender = address_channel_sender.clone();
+    let start_peer_channel_sender = peer_channel_sender.clone();
     thread::spawn(move || {
         let address = parse_args();
-        address_channel_first_sender.send(address).unwrap();
+        start_peer_channel_sender.send(address).unwrap();
     });
 
     let mut thread_handlers = vec![];
 
     for x in 0..2 {
-
-        // peer < - addres
-        peer_channel_sender.send(address_channel_receiver.recv().unwrap());
-        let address_channel_sender_clone = address_channel_sender.clone();
-        //new_peer < - peer
         let new_peer: String = peer_channel_receiver.recv().unwrap();
         println!( "in the loop {}: {}", x, new_peer);
+
+        let peer_channel_sender_clone = peer_channel_sender.clone();
         thread_handlers.push( thread::spawn(move || {
-            handle_one_peer(new_peer, address_channel_sender_clone);
+            handle_one_peer(new_peer, peer_channel_sender_clone);
         }));
         println!( "finish handle {}", x);
     }
