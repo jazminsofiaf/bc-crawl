@@ -149,14 +149,14 @@ fn done(a_peer :String) {
     std::mem::drop(address_status);
 }
 
-fn retry_address(a_peer: & str) {
+fn retry_address(a_peer: String) {
     let mut address_status  = ADRESSES_VISITED.lock().unwrap();
-    if address_status[a_peer].retries > 3  {
-        address_status.insert(String::from(a_peer), peer_status(Status::Failed));
+    if address_status[&a_peer].retries > 3  {
+        address_status.insert(a_peer, peer_status(Status::Failed));
     } else {
         //this was different from go code
-        let peer_status =  get_peer_status(Status::Waiting, address_status[a_peer].retries + 1);
-        address_status.insert(String::from(a_peer),peer_status);
+        let peer_status =  get_peer_status(Status::Waiting, address_status[&a_peer].retries + 1);
+        address_status.insert(a_peer,peer_status);
     }
     std::mem::drop(address_status);
 }
@@ -309,7 +309,7 @@ fn process_version_message( target_address: String, payload: &Vec<u8>){
 
 }
 
-fn process_addr_message(target_address: String, payload: &Vec<u8>, address_channel: &Sender<String>) -> u64{
+fn process_addr_message(target_address: String, payload: &Vec<u8>, address_channel: Sender<String>) -> u64{
     if payload.len() == 0 {
         return 0;
     }
@@ -356,9 +356,9 @@ fn process_addr_message(target_address: String, payload: &Vec<u8>, address_chann
         msg.push_str(format!("services = {:?}     ", services ).as_str());
         msg.push_str(format!("target address = {}\n", target_address ).as_str());
 
-        let new_peer : String = format!(" {}:{:?} ", ip_v4, port);
+        let new_peer : String = format!("{}:{:?}", ip_v4, port);
         println!("new peer {} ", new_peer);
-        //address_channel.send(new_peer).unwrap();
+        address_channel.send(new_peer).unwrap();
 
         store_event( & msg);
 
@@ -368,7 +368,7 @@ fn process_addr_message(target_address: String, payload: &Vec<u8>, address_chann
     return addr_number;
 }
 
-fn handle_incoming_message(connection:& TcpStream, target_address: String, in_chain: Sender<String>, address_channel: Sender<String>)  {
+fn handle_incoming_message(connection:& TcpStream, target_address: String, in_chain: Sender<String>, sender: Sender<String>)  {
 
     loop {
         let read_result:ReadResult  = bcmessage::read_message(&connection);
@@ -393,7 +393,8 @@ fn handle_incoming_message(connection:& TcpStream, target_address: String, in_ch
                 }
                 if command == String::from(MSG_ADDR){
                     let peer = target_address.clone();
-                    let num_addr = process_addr_message(peer, &payload, &address_channel);
+                    let address_channel = sender.clone();
+                    let num_addr = process_addr_message(peer, &payload, address_channel);
                     if num_addr > ADDRESSES_RECEIVED_THRESHOLD {
                         print!("more than 5 addresses");
                         in_chain.send(connection_close).unwrap();
@@ -408,23 +409,24 @@ fn handle_incoming_message(connection:& TcpStream, target_address: String, in_ch
 
 }
 
-fn handle_one_peer(connecting_start_channel: Receiver<String>, address_channel_tx: Sender<String>){
-    let target_address: String = connecting_start_channel.recv().unwrap();
+fn handle_one_peer(target_address: String, address_channel_tx: Sender<String>){
     let timeout: Duration = Duration::from_millis(MILLISECONDS_TIMEOUT);
     let socket:SocketAddr = target_address.to_socket_addrs().unwrap().next().unwrap();
     match TcpStream::connect_timeout(&socket, timeout) {
         Err(e) => {
-            println!("Fail to connect: {}", e)
-            //retry address
+            println!("Fail to connect: {}", e);
+            store_event(&String::from("timeout"));
+            //let peer = target_address.clone();
+            //retry_address(peer);
         },
         Ok(c) => {
 
             let connection = Arc::new(c);
             let peer = target_address.clone();
-            let (in_chain_tx,in_chain_rx) = mpsc::channel();
-            let connection_rc = connection.clone();
+            let (in_chain_sender, in_chain_receiver) = mpsc::channel();
+            let connection_clone = connection.clone();
             thread::spawn(move || {
-                handle_incoming_message( &connection_rc, peer, in_chain_tx, address_channel_tx);
+                handle_incoming_message(&connection_clone, peer, in_chain_sender, address_channel_tx);
             });
 
             match bcmessage::send_request(&connection,MSG_VERSION){
@@ -436,7 +438,7 @@ fn handle_one_peer(connecting_start_channel: Receiver<String>, address_channel_t
                 _ => {}
             }
 
-            let received_cmd:String =  in_chain_rx.recv().unwrap();
+            let received_cmd:String =  in_chain_receiver.recv().unwrap();
             if received_cmd != String::from(MSG_VERSION) {
                 println!("Version Ack not received {}",received_cmd);
                 fail(target_address);
@@ -452,7 +454,7 @@ fn handle_one_peer(connecting_start_channel: Receiver<String>, address_channel_t
             }
 
 
-            let received_cmd =  in_chain_rx.recv().unwrap();
+            let received_cmd =  in_chain_receiver.recv().unwrap();
             if received_cmd != String::from(MSG_VERSION_ACK) {
                 println!("Version AckAck not received {}",received_cmd );
                 fail(target_address);
@@ -468,7 +470,7 @@ fn handle_one_peer(connecting_start_channel: Receiver<String>, address_channel_t
             }
 
 
-            let received_cmd =  in_chain_rx.recv().unwrap();
+            let received_cmd =  in_chain_receiver.recv().unwrap();
             if received_cmd == String::from(CONN_CLOSE) {
                 done(target_address);
                 return;
@@ -483,26 +485,55 @@ fn handle_one_peer(connecting_start_channel: Receiver<String>, address_channel_t
 fn main() {
     bcmessage::init();
 
-    let (address_channel_tx,address_channel_rx) = mpsc::channel();
-    let (connecting_channel_tx,connecting_channel_rx) = mpsc::channel();
+    let (address_channel_sender, address_channel_receiver) = mpsc::channel();
+    let (peer_channel_sender, peer_channel_receiver) = mpsc::channel();
 
 
+    let address_channel_first_sender = address_channel_sender.clone();
     thread::spawn(move || {
         let address = parse_args();
-        address_channel_tx.send(address).unwrap();
+        address_channel_first_sender.send(address).unwrap();
     });
+
+    let mut thread_handlers = vec![];
+
+    for x in 0..2 {
+
+        // peer < - addres
+        peer_channel_sender.send(address_channel_receiver.recv().unwrap());
+        let address_channel_sender_clone = address_channel_sender.clone();
+        //new_peer < - peer
+        let new_peer: String = peer_channel_receiver.recv().unwrap();
+        println!( "in the loop {}: {}", x, new_peer);
+        thread_handlers.push( thread::spawn(move || {
+            handle_one_peer(new_peer, address_channel_sender_clone);
+        }));
+        println!( "finish handle {}", x);
+    }
+
+    for thread in thread_handlers {
+        thread.join();
+    }
+
+
+
+
+
+
+    /*
+     thread::spawn(move || {
+        handle_one_peer(&connecting_channel_rx, sender);
+    });
+
+    for x in 0..2 {
+        println!( "in the loop {}", x);
+        let sender = address_channel_tx.clone();
+        handle_one_peer(&connecting_channel_rx, sender);
+        println!( "finish handle {}", x);
+    }
 
     connecting_channel_tx.send(address_channel_rx.recv().unwrap());
 
-    //shadowing
-    let (address_channel_tx,address_channel_rx) = mpsc::channel();
-
-    handle_one_peer(connecting_channel_rx, address_channel_tx);
-
-    /*
-    thread::spawn(move || {
-        handle_one_peer();
-    });
     */
 
 
