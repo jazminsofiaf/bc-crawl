@@ -16,7 +16,8 @@ use std::sync::Mutex;
 use lazy_static::lazy_static;
 use byteorder::{ReadBytesExt, LittleEndian, BigEndian};
 use dns_lookup::lookup_addr;
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{Sender, Receiver};
+
 
 
 struct PeerLogger {
@@ -411,7 +412,8 @@ fn handle_incoming_message(connection:& TcpStream, target_address: String, in_ch
 
 }
 
-fn handle_one_peer(target_address: String){
+fn handle_one_peer(connecting_start_channel: Receiver<String>){
+    let target_address: String = connecting_start_channel.recv().unwrap();
     let timeout: Duration = Duration::from_millis(MILLISECONDS_TIMEOUT);
     let socket:SocketAddr = target_address.to_socket_addrs().unwrap().next().unwrap();
     match TcpStream::connect_timeout(&socket, timeout) {
@@ -485,19 +487,19 @@ fn handle_one_peer(target_address: String){
 fn main() {
     bcmessage::init();
 
-
-
     let (address_channel_tx,address_channel_rx) = mpsc::channel();
+    let (connecting_channel_tx,connecting_channel_rx) = mpsc::channel();
+
+
     thread::spawn(move || {
         let address = parse_args();
         address_channel_tx.send(address).unwrap();
     });
+    
 
-    println!("address_channel= {}", address_channel_rx.recv().unwrap());
+    connecting_channel_tx.send(address_channel_rx.recv().unwrap());
 
-    //let (address_channel_tx,address_channel_rx) = mpsc::channel();
-
-    handle_one_peer(String::from("seed.btc.petertodd.org:8333"));
+    handle_one_peer(connecting_channel_rx);
 
     /*
     thread::spawn(move || {
