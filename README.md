@@ -8,7 +8,7 @@ It make use of [bitcoin network protocol](https://en.bitcoin.it/wiki/Protocol_do
 This project was made to compare performance with the same program in go languague.
 The performance is measured in number of new peer addresses discovers per time.
 
-To know more about rust programming languague, check [the wiki](https://github.com/jazminsofiaf/bc-crawl/wiki/About-Rust)
+To know more about rust programming language, check [the wiki](https://github.com/jazminsofiaf/bc-crawl/wiki/About-Rust)
 
 ### Installing rust
  for mac
