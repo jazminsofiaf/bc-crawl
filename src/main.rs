@@ -302,8 +302,6 @@ fn process_version_message( target_address: String, payload: &Vec<u8>){
     msg.push_str(format!("since = {:?}  ",SystemTime::now().duration_since(SystemTime::from(peer_time)).unwrap_or_default() ).as_str());
     msg.push_str(format!("services = {:?}\n", services ).as_str());
 
-    println!("ip {} ", msg);
-
     store_event(&msg);
     register_pvm_connection(target_address);
 
@@ -314,7 +312,7 @@ fn process_addr_message(target_address: String, payload: &Vec<u8>, address_chann
         return 0;
     }
     let addr_number = get_compact_int(payload);
-    println!("Received {} addresses", addr_number);
+    println!("Received {} addresses from {}",  addr_number, target_address);
     if addr_number < 2 {
         return addr_number;
     }
@@ -357,7 +355,7 @@ fn process_addr_message(target_address: String, payload: &Vec<u8>, address_chann
         msg.push_str(format!("target address = {}\n", target_address ).as_str());
 
         let new_peer : String = format!("{}:{:?}", ip_v4, port);
-        println!("new peer {} ", new_peer);
+        println!(" {} -> new peer {} ",target_address, new_peer);
         address_channel.send(new_peer).unwrap();
 
         store_event( & msg);
@@ -413,9 +411,9 @@ fn handle_one_peer(target_address: String, address_channel_tx: Sender<String>){
     let socket:SocketAddr = target_address.to_socket_addrs().unwrap().next().unwrap();
     match TcpStream::connect_timeout(&socket, timeout) {
         Err(e) => {
-            println!("Fail to connect: {}", e);
-            //let peer = target_address.clone();
-            //retry_address(peer);
+            println!("Fail to connect {}: {}", target_address ,e);
+            let peer = target_address.clone();
+            retry_address(peer);
         },
         Ok(c) => {
 
@@ -503,7 +501,6 @@ fn main() {
             thread_handlers.push( thread::spawn(move || {
                 handle_one_peer(new_peer, peer_channel_sender_clone);
             }));
-            println!( "finish handle {}", x);
         }
 
     }
