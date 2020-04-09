@@ -125,11 +125,11 @@ fn peer_status(status: Status) -> PeerStatus{
     return  get_peer_status(status, 0);
 }
 
-fn is_waiting(a_peer: & str) -> bool {
+fn is_waiting(a_peer: String) -> bool {
     let mut address_visited = ADRESSES_VISITED.lock().unwrap();
     let mut is_waiting = false;
-    if !address_visited.contains_key(a_peer) || address_visited.get(a_peer).unwrap().status == Status::Waiting{
-        address_visited.insert(String::from(a_peer), peer_status(Status::Connecting));
+    if !address_visited.contains_key(&a_peer) || address_visited.get(&a_peer).unwrap().status == Status::Waiting{
+        address_visited.insert(a_peer, peer_status(Status::Connecting));
         is_waiting = true
     }
     std::mem::drop(address_visited);
@@ -396,7 +396,6 @@ fn handle_incoming_message(connection:& TcpStream, target_address: String, in_ch
                     let address_channel = sender.clone();
                     let num_addr = process_addr_message(peer, &payload, address_channel);
                     if num_addr > ADDRESSES_RECEIVED_THRESHOLD {
-                        print!("more than 5 addresses");
                         in_chain.send(connection_close).unwrap();
                         break;
                     }
@@ -415,7 +414,6 @@ fn handle_one_peer(target_address: String, address_channel_tx: Sender<String>){
     match TcpStream::connect_timeout(&socket, timeout) {
         Err(e) => {
             println!("Fail to connect: {}", e);
-            store_event(&String::from("timeout"));
             //let peer = target_address.clone();
             //retry_address(peer);
         },
@@ -496,44 +494,23 @@ fn main() {
 
     let mut thread_handlers = vec![];
 
-    for x in 0..2 {
+    for x in 0..3 {
         let new_peer: String = peer_channel_receiver.recv().unwrap();
-        println!( "in the loop {}: {}", x, new_peer);
+        println!( "\nin the loop {}: {}", x, new_peer);
 
-        let peer_channel_sender_clone = peer_channel_sender.clone();
-        thread_handlers.push( thread::spawn(move || {
-            handle_one_peer(new_peer, peer_channel_sender_clone);
-        }));
-        println!( "finish handle {}", x);
+        if is_waiting(new_peer.clone()){
+            let peer_channel_sender_clone = peer_channel_sender.clone();
+            thread_handlers.push( thread::spawn(move || {
+                handle_one_peer(new_peer, peer_channel_sender_clone);
+            }));
+            println!( "finish handle {}", x);
+        }
+
     }
 
     for thread in thread_handlers {
         thread.join();
     }
-
-
-
-
-
-
-    /*
-     thread::spawn(move || {
-        handle_one_peer(&connecting_channel_rx, sender);
-    });
-
-    for x in 0..2 {
-        println!( "in the loop {}", x);
-        let sender = address_channel_tx.clone();
-        handle_one_peer(&connecting_channel_rx, sender);
-        println!( "finish handle {}", x);
-    }
-
-    connecting_channel_tx.send(address_channel_rx.recv().unwrap());
-
-    */
-
-
-
 
 }
 
