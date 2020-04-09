@@ -170,6 +170,13 @@ fn get_connected_peers() -> u64 {
     return  successful_peer as u64;
 }
 
+fn get_new_peers_size() -> u64 {
+    let address_status  = ADRESSES_VISITED.lock().unwrap();
+    let size = address_status.len();
+    std::mem::drop(address_status);
+    return  size as u64;
+}
+
 
 fn retry_address(a_peer: String)-> bool  {
     let mut address_status  = ADRESSES_VISITED.lock().unwrap();
@@ -525,7 +532,7 @@ fn main() {
 
     let mut thread_handlers = vec![];
 
-    let d = Duration::from_secs(2);
+    let d = Duration::from_secs(10);
     for _ in 0..NEIGHBOURS {
         let new_peer: String = peer_channel_receiver.recv_timeout(d).unwrap();
         if is_waiting(new_peer.clone()){
@@ -540,9 +547,11 @@ fn main() {
     for thread in thread_handlers {
         thread.join().unwrap();
     }
+    let new_peers = get_new_peers_size();
     let successful_peers = get_connected_peers();
     let time_spent = SystemTime::now().duration_since(start).unwrap_or_default();
-    println!("POOL Crawling ends: {:?} peers in {:?}",successful_peers, time_spent );
+    println!("POOL Crawling ends: {:?} new peers in {:?} ", new_peers, time_spent);
+    println!("{:?} peers successfully connected ", successful_peers);
 
 }
 
