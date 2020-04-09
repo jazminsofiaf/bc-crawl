@@ -368,7 +368,6 @@ fn process_addr_message(target_address: String, payload: Vec<u8> , address_chann
         return 0;
     }
     let addr_number = get_compact_int(&payload);
-    println!("Received {} addresses from {}",  addr_number, target_address);
     if addr_number < 2 {
         return addr_number;
     }
@@ -431,7 +430,7 @@ fn handle_one_peer(target_address: String, address_channel_tx: Sender<String>){
                 address_channel_tx.send(peer).unwrap();
                 return;
             } else {
-                std::process::exit(1);
+                return;
             }
 
         },
@@ -499,6 +498,7 @@ fn handle_one_peer(target_address: String, address_channel_tx: Sender<String>){
 }
 
 fn main() {
+    let start = SystemTime::now();
     bcmessage::init();
 
     let (peer_channel_sender, peer_channel_receiver) = mpsc::channel();
@@ -514,7 +514,7 @@ fn main() {
 
     for x in 0..800 {
         let new_peer: String = peer_channel_receiver.recv().unwrap();
-        println!( "\nin the loop it: {}: {}", x, new_peer);
+        println!( "\nin the loop it {}: {}", x, new_peer);
 
         if is_waiting(new_peer.clone()){
             let peer_channel_sender_clone = peer_channel_sender.clone();
@@ -528,6 +528,7 @@ fn main() {
     for thread in thread_handlers {
         thread.join().unwrap();
     }
+    println!("POOL Crawling ends: {:?}  ",SystemTime::now().duration_since(start).unwrap_or_default());
 
 }
 
