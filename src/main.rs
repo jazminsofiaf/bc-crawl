@@ -16,7 +16,7 @@ use std::sync::Mutex;
 use lazy_static::lazy_static;
 use byteorder::{ReadBytesExt, LittleEndian, BigEndian};
 use dns_lookup::lookup_addr;
-use std::sync::mpsc::{Sender, Receiver};
+use std::sync::mpsc::Sender;
 
 
 
@@ -97,7 +97,7 @@ const MILLISECONDS_TIMEOUT: u64 =600;
 
 const ADDRESSES_RECEIVED_THRESHOLD: u64 = 5;
 
-
+#[derive(Debug)]
 #[derive(PartialEq)]
 enum Status {
     Waiting,
@@ -137,6 +137,7 @@ fn is_waiting(a_peer: String) -> bool {
 }
 
 
+
 fn fail(a_peer :String){
     let mut address_status = ADRESSES_VISITED.lock().unwrap();
     address_status.insert(a_peer, peer_status(Status::Failed));
@@ -149,16 +150,17 @@ fn done(a_peer :String) {
     std::mem::drop(address_status);
 }
 
-fn retry_address(a_peer: String) {
+fn retry_address(a_peer: String)-> bool  {
     let mut address_status  = ADRESSES_VISITED.lock().unwrap();
     if address_status[&a_peer].retries > 3  {
         address_status.insert(a_peer, peer_status(Status::Failed));
-    } else {
-        //this was different from go code
-        let peer_status =  get_peer_status(Status::Waiting, address_status[&a_peer].retries + 1);
-        address_status.insert(a_peer,peer_status);
+        return false;
     }
+    //this was different from go code
+    let peer_status =  get_peer_status(Status::Waiting, address_status[&a_peer].retries + 1);
+    address_status.insert(a_peer,peer_status);
     std::mem::drop(address_status);
+    return true;
 }
 
 fn register_pvm_connection(a_peer:String) {
@@ -323,10 +325,6 @@ fn process_addr_message(target_address: String, payload: &Vec<u8>, address_chann
 
     while read_addr < addr_number {
 
-        if read_addr == 3 {
-            // TODO remove this break
-            break;
-        }
 
         let addr_begins_at = start_byte + (ADDRESS_LEN * read_addr as usize);
         let date_time = get_date_time(payload[addr_begins_at..addr_begins_at+ TIME_FIELD_END].to_vec());
@@ -413,7 +411,14 @@ fn handle_one_peer(target_address: String, address_channel_tx: Sender<String>){
         Err(e) => {
             println!("Fail to connect {}: {}", target_address ,e);
             let peer = target_address.clone();
-            retry_address(peer);
+
+            if retry_address(peer.clone()){
+                address_channel_tx.send(peer).unwrap();
+                return;
+            } else {
+                std::process::exit(1);
+            }
+
         },
         Ok(c) => {
 
@@ -492,9 +497,9 @@ fn main() {
 
     let mut thread_handlers = vec![];
 
-    for x in 0..3 {
+    for x in 0..5 {
         let new_peer: String = peer_channel_receiver.recv().unwrap();
-        println!( "\nin the loop {}: {}", x, new_peer);
+        println!( "\nin the loop it: {}: {}", x, new_peer);
 
         if is_waiting(new_peer.clone()){
             let peer_channel_sender_clone = peer_channel_sender.clone();
@@ -506,7 +511,7 @@ fn main() {
     }
 
     for thread in thread_handlers {
-        thread.join();
+        thread.join().unwrap();
     }
 
 }

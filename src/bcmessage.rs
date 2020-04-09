@@ -6,7 +6,7 @@ use byteorder::LittleEndian;
 use std::time::SystemTime;
 use sha2::{Sha256, Digest};
 use std::net::TcpStream;
-use std::io::{Write, Read};
+use std::io::{Write, Read, Error, ErrorKind};
 
 
 use std::io::Cursor;
@@ -103,7 +103,9 @@ pub fn read_message(mut connection: &TcpStream) -> ReadResult {
     return match connection.read(&mut header_buffer) {
         Ok(_) => {
             if header_buffer[START_MAGIC..END_MAGIC] != MAGIC[..] {
-                println!("Error in Magic message header: {:?}", &header_buffer[START_MAGIC..END_MAGIC])
+                println!("Error in Magic message header: {:?}", &header_buffer[START_MAGIC..END_MAGIC]);
+                read_result.error = Some(Error::new(ErrorKind::Other, "Magic error"));
+                return read_result
             }
 
             let cmd = String::from_utf8_lossy(&header_buffer[START_CMD..END_CMD]);
