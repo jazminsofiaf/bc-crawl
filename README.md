@@ -1,3 +1,15 @@
+# Bitcoin Crawl
+
+This program is a bitcoin crawler. Starting with an address look for more peer's addresses in the networks.
+It make use of [bitcoin network protocol](https://en.bitcoin.it/wiki/Protocol_documentation) to send and receive message from peers. 
+
+## Performance
+
+This project was made to compare performance with the same program in go languague.
+The performance is measured in number of new peer addresses discovers per time.
+
+To know more about rust, check [the wiki](https://github.com/jazminsofiaf/bc-crawl/wiki/About-Rust)
+
 ### Installing rust
  for mac
 ```
