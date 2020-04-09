@@ -95,6 +95,8 @@ const PORT_FIELD_END:usize= 30;
 
 const MILLISECONDS_TIMEOUT: u64 =600;
 
+const NEIGHBOURS: u64 = 800;
+
 const ADDRESSES_RECEIVED_THRESHOLD: u64 = 5;
 
 #[derive(Debug)]
@@ -144,8 +146,6 @@ fn is_waiting(a_peer: String) -> bool {
     return is_waiting
 }
 
-
-
 fn fail(a_peer :String){
     let mut address_status = ADRESSES_VISITED.lock().unwrap();
     address_status.insert(a_peer, peer_status(Status::Failed));
@@ -157,6 +157,19 @@ fn done(a_peer :String) {
     address_status.insert(a_peer, peer_status(Status::Done));
     std::mem::drop(address_status);
 }
+
+fn get_connected_peers() -> u64 {
+    let mut successful_peer = 0;
+    let address_status  = ADRESSES_VISITED.lock().unwrap();
+    for (_, peer_status) in address_status.iter(){
+        if peer_status.status == Status::Done {
+            successful_peer = successful_peer +1;
+        }
+    }
+    std::mem::drop(address_status);
+    return  successful_peer as u64;
+}
+
 
 fn retry_address(a_peer: String)-> bool  {
     let mut address_status  = ADRESSES_VISITED.lock().unwrap();
@@ -512,10 +525,9 @@ fn main() {
 
     let mut thread_handlers = vec![];
 
-    for x in 0..800 {
-        let new_peer: String = peer_channel_receiver.recv().unwrap();
-        println!( "\nin the loop it {}: {}", x, new_peer);
-
+    let d = Duration::from_secs(2);
+    for _ in 0..NEIGHBOURS {
+        let new_peer: String = peer_channel_receiver.recv_timeout(d).unwrap();
         if is_waiting(new_peer.clone()){
             let peer_channel_sender_clone = peer_channel_sender.clone();
             thread_handlers.push( thread::spawn(move || {
@@ -528,7 +540,9 @@ fn main() {
     for thread in thread_handlers {
         thread.join().unwrap();
     }
-    println!("POOL Crawling ends: {:?}  ",SystemTime::now().duration_since(start).unwrap_or_default());
+    let successful_peers = get_connected_peers();
+    let time_spent = SystemTime::now().duration_since(start).unwrap_or_default();
+    println!("POOL Crawling ends: {:?} peers in {:?}",successful_peers, time_spent );
 
 }
 
