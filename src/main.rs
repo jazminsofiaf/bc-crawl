@@ -107,13 +107,14 @@ enum Status {
     Failed
 }
 
+#[derive(Debug)]
 struct PeerStatus  {
     pub status: Status,
     pub retries: i32,
 }
 
 
-fn get_peer_status(status: Status, retries: i32) -> PeerStatus{
+fn generate_peer_status(status: Status, retries: i32) -> PeerStatus{
     let  peer_status = PeerStatus {
         status,
         retries
@@ -122,15 +123,22 @@ fn get_peer_status(status: Status, retries: i32) -> PeerStatus{
 }
 
 fn peer_status(status: Status) -> PeerStatus{
-    return  get_peer_status(status, 0);
+    return  generate_peer_status(status, 0);
 }
 
 fn is_waiting(a_peer: String) -> bool {
     let mut address_visited = ADRESSES_VISITED.lock().unwrap();
     let mut is_waiting = false;
-    if !address_visited.contains_key(&a_peer) || address_visited.get(&a_peer).unwrap().status == Status::Waiting{
+    if !address_visited.contains_key(&a_peer) {
         address_visited.insert(a_peer, peer_status(Status::Connecting));
         is_waiting = true
+    } else {
+        let peer = address_visited.get(&a_peer).unwrap();
+        if peer.status == Status::Waiting{
+            let retries:i32 = peer.retries;
+            address_visited.insert(a_peer, generate_peer_status(Status::Connecting, retries));
+            is_waiting = true
+        }
     }
     std::mem::drop(address_visited);
     return is_waiting
@@ -157,7 +165,7 @@ fn retry_address(a_peer: String)-> bool  {
         return false;
     }
     //this was different from go code
-    let peer_status =  get_peer_status(Status::Waiting, address_status[&a_peer].retries + 1);
+    let peer_status =  generate_peer_status(Status::Waiting, address_status[&a_peer].retries + 1);
     address_status.insert(a_peer,peer_status);
     std::mem::drop(address_status);
     return true;
@@ -309,15 +317,7 @@ fn process_version_message( target_address: String, payload: &Vec<u8>){
 
 }
 
-fn process_addr_message(target_address: String, payload: &Vec<u8>, address_channel: Sender<String>) -> u64{
-    if payload.len() == 0 {
-        return 0;
-    }
-    let addr_number = get_compact_int(payload);
-    println!("Received {} addresses from {}",  addr_number, target_address);
-    if addr_number < 2 {
-        return addr_number;
-    }
+fn read_addresses(target_address: String, payload: Vec<u8>, address_channel: Sender<String>, addr_number: u64){
 
     let start_byte = get_start_byte(& (addr_number as usize));
 
@@ -361,6 +361,21 @@ fn process_addr_message(target_address: String, payload: &Vec<u8>, address_chann
         read_addr = read_addr +1;
     }
 
+}
+
+fn process_addr_message(target_address: String, payload: Vec<u8> , address_channel: Sender<String>) -> u64{
+    if payload.len() == 0 {
+        return 0;
+    }
+    let addr_number = get_compact_int(&payload);
+    println!("Received {} addresses from {}",  addr_number, target_address);
+    if addr_number < 2 {
+        return addr_number;
+    }
+    thread::spawn(move || {
+        read_addresses(target_address, payload, address_channel, addr_number);
+    });
+
     return addr_number;
 }
 
@@ -390,7 +405,7 @@ fn handle_incoming_message(connection:& TcpStream, target_address: String, in_ch
                 if command == String::from(MSG_ADDR){
                     let peer = target_address.clone();
                     let address_channel = sender.clone();
-                    let num_addr = process_addr_message(peer, &payload, address_channel);
+                    let num_addr = process_addr_message(peer, payload, address_channel);
                     if num_addr > ADDRESSES_RECEIVED_THRESHOLD {
                         in_chain.send(connection_close).unwrap();
                         break;
@@ -497,7 +512,7 @@ fn main() {
 
     let mut thread_handlers = vec![];
 
-    for x in 0..5 {
+    for x in 0..800 {
         let new_peer: String = peer_channel_receiver.recv().unwrap();
         println!( "\nin the loop it: {}: {}", x, new_peer);
 
