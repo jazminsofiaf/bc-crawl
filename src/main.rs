@@ -445,14 +445,13 @@ fn handle_one_peer(connection_start_channel: Arc<Mutex<Receiver<String>>>, addre
     loop{
         let address_channel_tx = address_channel_tx.clone();
         let target_address = connection_start_channel.lock().unwrap().recv().unwrap();
-        let timeout: Duration = Duration::from_millis(MILLISECONDS_TIMEOUT);
+        let timeout: Duration = Duration::from_millis(2*MILLISECONDS_TIMEOUT);
         let socket:SocketAddr = target_address.to_socket_addrs().unwrap().next().unwrap();
         match TcpStream::connect_timeout(&socket, timeout) {
             Err(e) => {
                 println!("Fail to connect {}: {}", target_address ,e);
                 let peer = target_address.clone();
                 retry_address(peer.clone());
-                println!("handle one peer: {}", *addresses_to_test.lock().unwrap());
                 let mut guard = addresses_to_test.lock().unwrap();
                 *guard += -1;
 
@@ -486,6 +485,7 @@ fn handle_one_peer(connection_start_channel: Arc<Mutex<Receiver<String>>>, addre
 
                     match bcmessage::send_request(&connection, MSG_VERSION_ACK) {
                         Err(_) => {
+                            println!("error at sending asg version ack");
                             fail(target_address);
                             break;
                         },
@@ -502,6 +502,7 @@ fn handle_one_peer(connection_start_channel: Arc<Mutex<Receiver<String>>>, addre
 
                     match bcmessage::send_request(&connection, MSG_GETADDR) {
                         Err(_) => {
+                            println!("error at sending getaddr");
                             fail(target_address);
                             break;
                         },
@@ -518,7 +519,6 @@ fn handle_one_peer(connection_start_channel: Arc<Mutex<Receiver<String>>>, addre
                         std::process::exit(1);
                     }
                 }
-                println!("handle one peer: {}", *addresses_to_test.lock().unwrap());
                 let mut guard = addresses_to_test.lock().unwrap();
                 *guard += -1;
             },
@@ -529,8 +529,7 @@ fn handle_one_peer(connection_start_channel: Arc<Mutex<Receiver<String>>>, addre
 
 fn check_pool_size(addresses_to_test : Arc<Mutex<i64>>, start_time: SystemTime ){
     loop {
-        thread::sleep(Duration::from_millis(1));
-        //println!("check pool size: {}", *addresses_to_test.lock().unwrap());
+        thread::sleep(Duration::from_secs(1));
 
         if *addresses_to_test.lock().unwrap() < 1 {
             let new_peers = get_new_peers_size();
