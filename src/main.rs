@@ -17,7 +17,8 @@ use lazy_static::lazy_static;
 use byteorder::{ReadBytesExt, LittleEndian, BigEndian};
 use dns_lookup::lookup_addr;
 use std::sync::mpsc::Sender;
-
+use std::sync::mpsc::Receiver;
+use std::process;
 
 
 struct PeerLogger {
@@ -98,6 +99,8 @@ const MILLISECONDS_TIMEOUT: u64 =600;
 const NEIGHBOURS: u64 = 800;
 
 const ADDRESSES_RECEIVED_THRESHOLD: u64 = 5;
+
+
 
 #[derive(Debug)]
 #[derive(PartialEq)]
@@ -438,120 +441,156 @@ fn handle_incoming_message(connection:& TcpStream, target_address: String, in_ch
 
 }
 
-fn handle_one_peer(target_address: String, address_channel_tx: Sender<String>){
-    let timeout: Duration = Duration::from_millis(MILLISECONDS_TIMEOUT);
-    let socket:SocketAddr = target_address.to_socket_addrs().unwrap().next().unwrap();
-    match TcpStream::connect_timeout(&socket, timeout) {
-        Err(e) => {
-            println!("Fail to connect {}: {}", target_address ,e);
-            let peer = target_address.clone();
+fn handle_one_peer(connection_start_channel: Arc<Mutex<Receiver<String>>>, addresses_to_test : Arc<Mutex<i64>>, address_channel_tx: Sender<String>){
+    loop{
+        let address_channel_tx = address_channel_tx.clone();
+        let target_address = connection_start_channel.lock().unwrap().recv().unwrap();
+        let timeout: Duration = Duration::from_millis(MILLISECONDS_TIMEOUT);
+        let socket:SocketAddr = target_address.to_socket_addrs().unwrap().next().unwrap();
+        match TcpStream::connect_timeout(&socket, timeout) {
+            Err(e) => {
+                println!("Fail to connect {}: {}", target_address ,e);
+                let peer = target_address.clone();
+                retry_address(peer.clone());
+                println!("handle one peer: {}", *addresses_to_test.lock().unwrap());
+                let mut guard = addresses_to_test.lock().unwrap();
+                *guard += -1;
 
-            if retry_address(peer.clone()){
-                address_channel_tx.send(peer).unwrap();
-                return;
-            } else {
-                return;
-            }
+            },
+            Ok(c) => {
 
-        },
-        Ok(c) => {
+                let connection = Arc::new(c);
+                let peer = target_address.clone();
+                loop {
+                    let (in_chain_sender, in_chain_receiver) = mpsc::channel();
+                    let connection_clone = connection.clone();
+                    thread::spawn(move || {
+                        handle_incoming_message(&connection_clone, peer, in_chain_sender, address_channel_tx);
+                    });
 
-            let connection = Arc::new(c);
-            let peer = target_address.clone();
-            let (in_chain_sender, in_chain_receiver) = mpsc::channel();
-            let connection_clone = connection.clone();
-            thread::spawn(move || {
-                handle_incoming_message(&connection_clone, peer, in_chain_sender, address_channel_tx);
-            });
+                    match bcmessage::send_request(&connection, MSG_VERSION) {
+                        Err(e) => {
+                            println!("error sending request: {}", e);
+                            fail(target_address);
+                            break;
+                        }
+                        _ => {}
+                    }
 
-            match bcmessage::send_request(&connection,MSG_VERSION){
-                Err(e)=> {
-                    println!("error sending request: {}", e);
-                    fail(target_address);
-                    return;
+                    let received_cmd: String = in_chain_receiver.recv().unwrap();
+                    if received_cmd != String::from(MSG_VERSION) {
+                        println!("Version Ack not received {}", received_cmd);
+                        fail(target_address);
+                        break;
+                    }
+
+                    match bcmessage::send_request(&connection, MSG_VERSION_ACK) {
+                        Err(_) => {
+                            fail(target_address);
+                            break;
+                        },
+                        _ => {}
+                    }
+
+
+                    let received_cmd = in_chain_receiver.recv().unwrap();
+                    if received_cmd != String::from(MSG_VERSION_ACK) {
+                        println!("Version AckAck not received {}", received_cmd);
+                        fail(target_address);
+                        break;
+                    }
+
+                    match bcmessage::send_request(&connection, MSG_GETADDR) {
+                        Err(_) => {
+                            fail(target_address);
+                            break;
+                        },
+                        _ => {}
+                    }
+
+
+                    let received_cmd = in_chain_receiver.recv().unwrap();
+                    if received_cmd == String::from(CONN_CLOSE) {
+                        done(target_address);
+                        break;
+                    } else {
+                        println!("Bad message {}", received_cmd);
+                        std::process::exit(1);
+                    }
                 }
-                _ => {}
-            }
-
-            let received_cmd:String =  in_chain_receiver.recv().unwrap();
-            if received_cmd != String::from(MSG_VERSION) {
-                println!("Version Ack not received {}",received_cmd);
-                fail(target_address);
-                return;
-            }
-
-            match bcmessage::send_request(&connection,MSG_VERSION_ACK){
-                Err(_)=> {
-                    fail(target_address);
-                    return;
-                },
-                _ => {}
-            }
-
-
-            let received_cmd =  in_chain_receiver.recv().unwrap();
-            if received_cmd != String::from(MSG_VERSION_ACK) {
-                println!("Version AckAck not received {}",received_cmd );
-                fail(target_address);
-                return;
-            }
-
-            match bcmessage::send_request(&connection,MSG_GETADDR){
-                Err(_)=> {
-                    fail(target_address);
-                    return;
-                },
-                _ => {}
-            }
-
-
-            let received_cmd =  in_chain_receiver.recv().unwrap();
-            if received_cmd == String::from(CONN_CLOSE) {
-                done(target_address);
-                return;
-            } else {
-                println!("Bad message {}",received_cmd);
-                std::process::exit(1);
-            }
-        },
+                println!("handle one peer: {}", *addresses_to_test.lock().unwrap());
+                let mut guard = addresses_to_test.lock().unwrap();
+                *guard += -1;
+            },
+        }
     }
+
+}
+
+fn check_pool_size(addresses_to_test : Arc<Mutex<i64>>, start_time: SystemTime ){
+    loop {
+        thread::sleep(Duration::from_millis(1));
+        //println!("check pool size: {}", *addresses_to_test.lock().unwrap());
+
+        if *addresses_to_test.lock().unwrap() < 1 {
+            let new_peers = get_new_peers_size();
+            let successful_peers = get_connected_peers();
+            let time_spent = SystemTime::now().duration_since(start_time).unwrap_or_default();
+            println!("POOL Crawling ends: {:?} new peers in {:?} ", new_peers, time_spent);
+            println!("{:?} peers successfully connected ", successful_peers);
+            process::exit(0);
+        }
+    }
+
 }
 
 fn main() {
-    let start = SystemTime::now();
+    let start_time: SystemTime = SystemTime::now();
     bcmessage::init();
+    let addresses_to_test:Arc<Mutex<i64>> = Arc::new(Mutex::new(0));
 
-    let (peer_channel_sender, peer_channel_receiver) = mpsc::channel();
-
-
-    let start_peer_channel_sender = peer_channel_sender.clone();
-    thread::spawn(move || {
-        let address = parse_args();
-        start_peer_channel_sender.send(address).unwrap();
-    });
+    let (address_channel_sender, address_channel_receiver) = mpsc::channel();
+    let (connecting_start_channel_sender, connecting_start_channel_receiver) = mpsc::channel();
 
     let mut thread_handlers = vec![];
 
-    let d = Duration::from_secs(10);
-    for _ in 0..NEIGHBOURS {
-        let new_peer: String = peer_channel_receiver.recv_timeout(d).unwrap();
-        if is_waiting(new_peer.clone()){
-            let peer_channel_sender_clone = peer_channel_sender.clone();
-            thread_handlers.push( thread::spawn(move || {
-                handle_one_peer(new_peer, peer_channel_sender_clone);
-            }));
-        }
 
+    let first_address_sender = address_channel_sender.clone();
+    thread_handlers.push(thread::spawn(move || {
+        let address = parse_args();
+        first_address_sender.send(address).unwrap();
+    }));
+
+    let counter = Arc::clone(&addresses_to_test);
+    thread_handlers.push( thread::spawn(move || {
+        check_pool_size(counter, start_time );
+    }));
+
+
+    let connecting_start_channel_receiver = Arc::new(Mutex::new(connecting_start_channel_receiver));
+    for _ in 0..NEIGHBOURS {
+        let connecting_start_channel_receiver = connecting_start_channel_receiver.clone();
+        let counter = Arc::clone(&addresses_to_test);
+        let sender = address_channel_sender.clone();
+        thread_handlers.push( thread::spawn(move || {
+                handle_one_peer(connecting_start_channel_receiver, counter, sender);
+        }));
     }
+
+    loop {
+        let new_peer: String = address_channel_receiver.recv().unwrap();
+        if is_waiting(new_peer.clone()){
+            let mut addresses_to_test = addresses_to_test.lock().unwrap();
+            *addresses_to_test += 1;
+            connecting_start_channel_sender.send(new_peer).unwrap();
+        }
+    }
+
 
     for thread in thread_handlers {
         thread.join().unwrap();
     }
-    let new_peers = get_new_peers_size();
-    let successful_peers = get_connected_peers();
-    let time_spent = SystemTime::now().duration_since(start).unwrap_or_default();
-    println!("POOL Crawling ends: {:?} new peers in {:?} ", new_peers, time_spent);
-    println!("{:?} peers successfully connected ", successful_peers);
+
 
 }
 
