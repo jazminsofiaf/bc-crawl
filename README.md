@@ -28,3 +28,10 @@ cargo run -- -o file.txt -s 'seed.btc.petertodd.org:8333'
 
 sometimes can return Error connection timeout
 
+We can see a print of the execution bitcoin crawler in go language
+![result in go ](https://github.com/jazminsofiaf/bc-crawl/blob/master/go.png)
+
+And a print of a execution of this bitcoin crawler in rust
+![result in rust](https://github.com/jazminsofiaf/bc-crawl/blob/master/rust.png)
+
+We can conclude that there is no big difference in the performance
