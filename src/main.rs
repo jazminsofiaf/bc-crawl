@@ -454,7 +454,7 @@ fn handle_one_peer(connection_start_channel: Arc<Mutex<Receiver<String>>>, addre
             let socket:SocketAddr = addr;
             let result = TcpStream::connect_timeout(&socket, timeout);
             if result.is_err() {
-                //println!("Fail to connect {}: {}", target_address, result.err().unwrap());
+                println!("Fail to connect {}: {}", target_address, result.err().unwrap());
                 let peer = target_address.clone();
                 retry_address(peer.clone());
             } else {
@@ -473,6 +473,7 @@ fn handle_one_peer(connection_start_channel: Arc<Mutex<Receiver<String>>>, addre
                     Err(e) => {
                         println!("error sending request: {}", e);
                         fail(target_address.clone());
+                        std::mem::drop(connection);
                         break;
                     }
                     _ => {}
@@ -482,6 +483,7 @@ fn handle_one_peer(connection_start_channel: Arc<Mutex<Receiver<String>>>, addre
                 if received_cmd != String::from(MSG_VERSION) {
                     println!("Version Ack not received {}", received_cmd);
                     fail(target_address.clone());
+                    std::mem::drop(connection);
                     break;
                 }
 
@@ -489,6 +491,7 @@ fn handle_one_peer(connection_start_channel: Arc<Mutex<Receiver<String>>>, addre
                     Err(_) => {
                         println!("error at sending asg version ack");
                         fail(target_address.clone());
+                        std::mem::drop(connection);
                         break;
                     },
                     _ => {}
@@ -499,6 +502,7 @@ fn handle_one_peer(connection_start_channel: Arc<Mutex<Receiver<String>>>, addre
                 if received_cmd != String::from(MSG_VERSION_ACK) {
                     println!("Version AckAck not received {}", received_cmd);
                     fail(target_address.clone());
+                    std::mem::drop(connection);
                     break;
                 }
 
@@ -506,6 +510,7 @@ fn handle_one_peer(connection_start_channel: Arc<Mutex<Receiver<String>>>, addre
                     Err(_) => {
                         println!("error at sending getaddr");
                         fail(target_address.clone());
+                        std::mem::drop(connection);
                         break;
                     },
                     _ => {}
@@ -515,9 +520,11 @@ fn handle_one_peer(connection_start_channel: Arc<Mutex<Receiver<String>>>, addre
                 let received_cmd = in_chain_receiver.recv().unwrap();
                 if received_cmd == String::from(CONN_CLOSE) {
                     done(target_address.clone());
+                    std::mem::drop(connection);
                     break;
                 } else {
                     println!("Bad message {}", received_cmd);
+                    std::mem::drop(connection);
                     std::process::exit(1);
                 }
             }
@@ -584,7 +591,7 @@ fn main() {
             connecting_start_channel_sender.send(new_peer).unwrap();
             let mut addresses_to_test = addresses_to_test.lock().unwrap();
             *addresses_to_test += 1;
-            // println!("n = {}, known peer = {} ", addresses_to_test, get_new_peers_size());
+            println!("n = {}, known peer = {} ", addresses_to_test, get_new_peers_size());
         }
     }
 

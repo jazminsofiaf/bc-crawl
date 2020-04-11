@@ -133,7 +133,7 @@ pub fn read_message(mut connection: &TcpStream) -> ReadResult {
         Err(e) => {
             println!("error reading header");
             read_result.error = Some(e);
-            read_result
+            return read_result
         }
     }
 }
