@@ -587,7 +587,7 @@ fn main() {
             connecting_start_channel_sender.send(new_peer).unwrap();
             let mut addresses_to_test = addresses_to_test.lock().unwrap();
             *addresses_to_test += 1;
-            println!("n = {}, known peer = {} ", addresses_to_test, get_new_peers_size());
+            // println!("n = {}, known peer = {} ", addresses_to_test, get_new_peers_size());
         }
     }
 
