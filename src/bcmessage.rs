@@ -91,7 +91,7 @@ pub fn init() {
 
 
 // Read message from a peer return command, payload, err
-pub fn read_message(mut connection: &TcpStream) -> ReadResult {
+pub fn  read_message(mut connection: &TcpStream) -> ReadResult {
 
     let mut read_result = ReadResult {
         command: String::new(),
