@@ -40,14 +40,5 @@ A difference of 13 seg. It is important to mention that this is only one example
 The time spent depends on the peers time of connection. 
 
 
-## Analyse
-It is important to mention that this program is only a migration but is not safe the way that the threads are handled. 
-First of all to finish the program it use a syscall to finish the program, that could make all the child thread finish abruptly, perhaps leading memory errors or resources not freed correctly (for example leave an open file). 
-There is a loop in the main thread that has no condition to close.  
-The close condition is checked in another thread `check_pool_size` that only check the value of a global variable `addresses_to_test` but this variable could be analysed before assignment. 
-This global variable is also modify by others threads. One in the main loop that always add 1.  
-And 800 other threads that substrates 1 in a loop. The value of the global variable could be negative if the main loop has more cpu clocks assigned.  
-So the end of the program depends on the system scheduler which is dangerous.
-
 ### Conclusion
 We can conclude that there is no big difference in the performance
